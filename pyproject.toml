@@ -1,0 +1,25 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "tincture"
+description="Tincture is a small performant color library focusing on color manipulation, color data and color conversation"
+readme="README.md"
+requires-python = ">=3.8"
+keywords = ["tincture", "color-conversation", "color-manipulation", "gradient", "color"]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+]
+dynamic = ["version"]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+addopts = "--cov=tincture"
+testpaths = [
+    "tests",
+]

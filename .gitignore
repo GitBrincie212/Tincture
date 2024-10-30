@@ -1,0 +1,7 @@
+/target
+.coverage
+debug/
+**/*.rs.bk
+*.pdb
+Main.py
+venv/**
