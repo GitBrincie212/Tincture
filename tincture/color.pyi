@@ -257,7 +257,7 @@ class Color:
         """
         ...
 
-    def add(self, other: "Color", include_transparency: bool) -> "Color":
+    def add(self, other: "Color", include_transparency: bool = False) -> "Color":
         """
         Performs an addition operation between this color and the other color, then it returns
         a new color value. The RGB values are maxed to 255, for subtraction it is recommended
@@ -265,11 +265,12 @@ class Color:
         If you want, you can opt in to include the alpha channel as well
 
         :param other : The other color for the subtraction operation
-        :param include_transparency : Performs the operation in addition to the alpha channel when set to true
+        :param include_transparency : Performs the operation in addition to the alpha channel when set to true;
+        By default, it is set to be false
         """
         ...
 
-    def sub(self, other: "Color", include_transparency: bool) -> "Color":
+    def sub(self, other: "Color", include_transparency: bool = False) -> "Color":
         """
         Performs a subtraction operation between this color and the other color, then it returns
         a new color value. The RGB values are minimized to 0, for adding; it is recommended
@@ -277,11 +278,12 @@ class Color:
         If you want, you can opt in to include the alpha channel as well
 
         :param other : The other color for the subtraction operation
-        :param include_transparency : Performs the operation in addition to the alpha channel when set to true
+        :param include_transparency : Performs the operation in addition to the alpha channel when set to true;
+        By default, it is set to be false
         """
         ...
 
-    def mul(self, scalar: float,  include_transparency: bool) -> "Color":
+    def mul(self, scalar: float,  include_transparency: bool = False) -> "Color":
         """
         Performs a multiplication operation between this color and a scalar value, then it returns
         a new color value. The RGB values are clamped to the range of 0.0 and 255.0 (including both),
@@ -289,11 +291,12 @@ class Color:
         If you want, you can opt in to include the alpha channel as well
 
         :param scalar : The scalar value for the multiplication operation
-        :param include_transparency : Performs the operation in addition to the alpha channel when set to true
+        :param include_transparency : Performs the operation in addition to the alpha channel when set to true;
+        By default, it is set to be false
         """
         ...
 
-    def div(self, scalar: float, include_transparency: bool) -> "Color":
+    def div(self, scalar: float, include_transparency: bool = False) -> "Color":
         """
         Performs a division operation between this color and a scalar value, then it returns
         a new color value. The RGB values are clamped to the range of 0.0 and 255.0 (including both),
@@ -302,11 +305,12 @@ class Color:
         you can opt in to include the alpha channel as well
 
         :param scalar : The scalar value for the division operation
-        :param include_transparency : Performs the operation in addition to the alpha channel when set to true
+        :param include_transparency : Performs the operation in addition to the alpha channel when set to true;
+        By default, it is set to be false
         """
         ...
 
-    def tensor(self, other: "Color", include_transparency: bool) -> "Color":
+    def tensor(self, other: "Color", include_transparency: bool = False) -> "Color":
         """
         Performs a tensor operation between this color and another color, then it returns
         a new color value. The RGB values are clamped to the range of 0.0 and 255.0 (including both),
@@ -314,11 +318,12 @@ class Color:
         If you want, you can opt in to include the alpha channel as well
 
         :param other : The other color to perform the tensor product operation with
-        :param include_transparency : Performs the operation in addition to the alpha channel when set to true
+        :param include_transparency : Performs the operation in addition to the alpha channel when set to true;
+        By default, it is set to be false
         """
         ...
 
-    def base_sqrt(self, base: int, include_transparency: bool) -> "Color":
+    def base_sqrt(self, base: int, include_transparency: bool = False) -> "Color":
         """
         Performs an n-th root operation between this color and another color, then it returns
         a new color value. The RGB values are clamped to the range of 0.0 and 255.0 (including both),
@@ -326,38 +331,42 @@ class Color:
         if you want to include the alpha channel as well
 
         :param base: The square root base
-        :param include_transparency : Performs the operation in addition to the alpha channel when set to true
+        :param include_transparency : Performs the operation in addition to the alpha channel when set to true;
+        By default, it is set to be false
         """
         ...
 
-    def max(self, other: "Color", include_transparency: bool) -> "Color":
+    def max(self, other: "Color", include_transparency: bool = False) -> "Color":
         """
         Performs the max operation on all 3 RGB channels together with another color to create
         a new color instance, this operation is mostly a short-form way to write it out, and nothing
         too fancy is happening under the hood. If you want, you can also include the alpha channel to be inverted
 
         :param other : The other color for the max operation.
-        :param include_transparency: Max the alpha channel as well when set to true
+        :param include_transparency : Performs the operation in addition to the alpha channel when set to true;
+        By default, it is set to be false
         """
         ...
 
-    def min(self, other: "Color", include_transparency: bool) -> "Color":
+    def min(self, other: "Color", include_transparency: bool = False) -> "Color":
         """
         Performs the min operation on all 4 RGB channels together with another color to create
         a new color instance, this operation is mostly a short-form way to write it out, and nothing
         too fancy is happening under the hood. If you want, you can also include the alpha channel to be inverted
 
         :param other : The other color for the min operation.
-        :param include_transparency: Min the alpha channel as well when set to true
+        :param include_transparency : Performs the operation in addition to the alpha channel when set to true;
+        By default, it is set to be false
         """
         ...
 
-    def inverse(self, include_transparency: bool) -> "Color":
+    def inverse(self, include_transparency: bool = False) -> "Color":
         """
         Performs a color inversion. This inverts all the 3 RGB channels.
         If you want, you can also include the alpha channel to be inverted
 
-        :param include_transparency: Invert the alpha channel as well when set to true
+        :param include_transparency : Performs the operation in addition to the alpha channel when set to true;
+        By default, it is set to be false
         """
         ...
 
@@ -467,7 +476,7 @@ class Color:
 
         :param other: The other color to compare against
         :param diff: The difference between this and the other color. Has to be in range [0, 255]
-        :param include_transparency: Whenever or not to check the alpha channel as well
+        :param include_transparency: Whenever or not to check the alpha channel as well. By default, it's set to true
         """
         ...
 
