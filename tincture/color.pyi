@@ -131,14 +131,14 @@ class Color:
         """
         Construct a new color based on provided LCH values.
         Where it is an acronym for Lightness, Chroma, and Hue.
-        The s and v values supplied should be in the range of 0.0 to 1.0 (inclusion on both)
-        since they are percentage values. Otherwise, the code will return an error
+        The hue ranges from [0, 360], the chroma ranges from [0, 200],
+        and the lightness ranges from [0, 100]
 
         Note: the hue value will be rounded to the range [0, 360] if it is negative
 
-        :param h: The Hue Component Which is In Degrees And Ranges [0, 360]
-        :param s: The Saturation Component As A Percentage (from 0.0 to 1.0)
-        :param v: The Value Component As A Percentage (from 0.0 to 1.0)
+        :param l: The Lightness Component Which Ranges From [0, 100]
+        :param c: The Chroma Component Which Ranges From [0, 200]
+        :param h: The Hue Component As A Degrees Ranging From [0, 360]
         :param transparency : The transparency value that ranges from [0.0, 1.0]
         """
         ...
@@ -348,6 +348,29 @@ class Color:
         """ Performs a grayscale operation. This basically grayscales the color """
         ...
 
+    def triadic_colors(self) -> list["Color"]:
+        """
+        Gets the two triadic colors based on this color, the tetradic colors have a difference of hue 120 degrees
+        from the color used in this operation; it uses the HSL color space to do this specific operation which sometimes
+        (very rarely) may not be accurate
+        """
+        ...
+
+    def adjust_temperature(self, temperature: int):
+        """
+        Adjusts the temperature of the color where positive temperature makes the color warmer while
+        negative temperature makes the color colder. With temperature zero, it does nothing to the color
+        """
+        ...
+
+    def contrast(self, factor: float):
+        """
+        Adjusts the contrast of the color, the factor value is a percentage value and can range from [-1, 1] where
+        negative numbers decrease the contrast and make the color grayer. Positive values add more contrast, and when
+        the factor is equal to zero, it has no influence
+        """
+        ...
+
     def brightness(self, factor: float) -> "Color":
         """
         Performs a brightness adjustment operation. Where it adjusts the brightness of the Color.
@@ -442,9 +465,9 @@ class Color:
 
     def to_lch(self) -> str:
         """
-        Converts the color object into LCH format where L is lightness, C is for chroma,
-        and H is for Hue. L ranges from [0, 100], C from [0, 200], and H is degrees which means
-        it ranges from [0, 360]
+        Converts the color object into the Lightness Chroma Hue color space format.
+        Where lightness and chroma are percentage values that range from [0.0, 1.0] while hue
+        is an angle value that ranges from [0.0, 360.0]. Includes transparency as a field
         """
         ...
 
@@ -504,13 +527,6 @@ class Color:
         blueness to yellowness and ranges from [-128.0, 127.0]. Includes transparency as a field
         """
         ...
-
-    def to_lch(self) -> tuple[float]:
-        """
-        Converts the color object into the Lightness Chroma Hue color space format.
-        Where lightness and chroma are percentage values that range from [0.0, 1.0] while hue
-        is an angle value that ranges from [0.0, 360.0]. Includes transparency as a field
-        """
 
     def to_rgba_list(self) -> list[int]:
         """Converts the color object into a list that contains the RGBA values from [0, 255]"""
