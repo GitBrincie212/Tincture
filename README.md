@@ -62,29 +62,9 @@ from tincture import Color
 if __name__ == "__main__":
     color = Color.from_hsv(30, 0.6, 1.0, 0.4)
     color2 = Color.from_lch(0.35, 0.83, 42, 0.24)
-    color3 = Color.from_cmyk(0.35, 0.83, 0.234, 0.925)
+    color3 = Color.from_cmyk(0.35, 0.83, 0.234, 0.925, 0.32)
     color4 = Color.from_xyz(92.14, 23.321, 45.824, 0.312)
     color5 = Color.from_hex("ffffff")
-    print(color.to_xyz())
-    print(color.to_hex(include_transparency=False))
-    print(color.to_hex(include_transparency=True))
-    print(color.to_oklab())
-    print(color.to_cmyk())
-    print(color.to_decimal_rgb())
-    print(color.to_hsl())
-```
-
-_Color Conversion_
-```python
-from tincture import Color
-
-if __name__ == "__main__":
-    color = Color.from_hsv(30, 0.6, 1.0, 0.4)
-    color2 = Color.from_lch(0.35, 0.83, 42, 0.24)
-    color3 = Color.from_cmyk(0.35, 0.83, 0.234, 0.925)
-    color4 = Color.from_xyz(92.14, 23.321, 45.824, 0.312)
-    color5 = Color.from_hex("ffffff")
-    color6 = Color.from_hsl(45, 41.531, 8.302, 0.342)
     print(color.to_xyz())
     print(color.to_hex(include_transparency=False))
     print(color.to_hex(include_transparency=True))
