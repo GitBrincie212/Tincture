@@ -127,6 +127,23 @@ class Color:
         ...
 
     @staticmethod
+    def from_hsl(h: int, s: float, l: float, transparency: float) -> "Color":
+        """
+        Construct a new color based on provided HSL values.
+        Where it is an acronym for Hue, Saturation, and Lightness.
+        The s and l values supplied should be in the range of 0.0 to 1.0 (inclusion on both)
+        since they are percentage values. Otherwise, the code will return an error
+
+        Note: the hue value will be rounded to the range [0, 360] if it is negative
+
+        :param h: The Hue Component Which is In Degrees And Ranges [0, 360]
+        :param s: The Saturation Component As A Percentage (from 0.0 to 1.0)
+        :param l: The Lightness Component As A Percentage (from 0.0 to 1.0)
+        :param transparency: The transparency value that ranges from [0.0, 1.0]
+        """
+        ...
+
+    @staticmethod
     def from_lch(l: float, c: float, h: int, transparency: float) -> "Color":
         """
         Construct a new color based on provided LCH values.
