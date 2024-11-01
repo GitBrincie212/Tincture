@@ -38,22 +38,22 @@ def test_color_luminance(color, expected):
     (tincture.Color(150, 136, 78), 0.48),
     (tincture.Color(45, 30, 250), 0.88),
     (tincture.Color(245, 121, 28), 0.88),
-    (tincture.Color.RED, 1),
-    (tincture.Color.BLUE, 1),
-    (tincture.Color.GREEN, 1),
-    (tincture.Color.WHITE, 0),
-    (tincture.Color.BLACK, 0),
-    (tincture.Color.CYAN, 1),
-    (tincture.Color.YELLOW, 1),
+    (tincture.RED, 1),
+    (tincture.BLUE, 1),
+    (tincture.GREEN, 1),
+    (tincture.WHITE, 0),
+    (tincture.BLACK, 0),
+    (tincture.CYAN, 1),
+    (tincture.YELLOW, 1),
 ])
 def test_color_saturation(color, expected):
     assert expected - 0.05 <= color.get_saturation() <= expected + 0.05
 
 @pytest.mark.parametrize("color,color2,diff,expected", [
     (tincture.Color(106, 240, 117), tincture.Color(106, 240, 117), 1, True),
-    (tincture.Color.WHITE, tincture.Color.BLACK, 1, False),
+    (tincture.WHITE, tincture.BLACK, 1, False),
     (tincture.Color(254, 228, 112), tincture.Color(254, 228, 112), 3, True),
-    (tincture.Color.CYAN, tincture.Color.RED, 255, True),
+    (tincture.CYAN, tincture.RED, 255, True),
     (tincture.Color(3, 2, 1, 255), tincture.Color(4, 5, 6, 0), 10, False),
     (tincture.Color(0, 0, 0, 255), tincture.Color(0, 0, 0, 0), 255, True),
 ])
