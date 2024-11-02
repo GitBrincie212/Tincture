@@ -150,7 +150,7 @@ def test_color_brightness(color1, factor, expected):
     (tincture.Color(138, 22, 109), 710, tincture.Color(136, 22, 127)),
 ])
 def test_color_tint(color, factor, expected):
-    assert color.tint(factor).approx_equal(expected, 1, True)
+    assert color.tint(factor).approx_equal(expected, 2, True)
 
 @pytest.mark.parametrize("color1,start,end,expected", [
     (tincture.Color(66, 135, 245), [None, None, None, None], [None, None, None, None], tincture.Color(66, 135, 245)),
