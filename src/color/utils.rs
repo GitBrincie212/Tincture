@@ -37,17 +37,18 @@ pub(crate) fn color_to_decimal_rgb(color: Color) -> (f32, f32, f32) {
 }
 
 pub(crate) fn color_to_oklab(color: Color) -> (f32, f32, f32) {
-    let l: f32 = (0.4122214708 * (color.r as f32))
-        + (0.5363325363 * (color.g as f32))
-        + (0.0514459929 * (color.b as f32));
+    let rgba = color_to_decimal_rgb(color);
+    let l: f32 = (0.4122214708 * &rgba.0)
+        + (0.5363325363 * &rgba.1)
+        + (0.0514459929 * &rgba.2);
 
-    let a: f32 = (0.2119034982 * (color.r as f32))
-        + (0.6806995451 * (color.g as f32))
-        + (0.1073969566 * (color.b as f32));
+    let a: f32 = (0.2119034982 * &rgba.0)
+        + (0.6806995451 * &rgba.1)
+        + (0.1073969566 * &rgba.2);
 
-    let b: f32 = (0.0883024619 * (color.r as f32))
-        + (0.2817188376 * (color.g as f32))
-        + (0.6299787005 * (color.b as f32));
+    let b: f32 = (0.0883024619 * rgba.0)
+        + (0.2817188376 * rgba.1)
+        + (0.6299787005 * rgba.2);
 
     let l_sqrt_cube: f32 = l.powf(3.333333);
     let a_sqrt_cube: f32 = a.powf(3.333333);

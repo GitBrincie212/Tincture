@@ -190,3 +190,42 @@ def test_color_bool(color, expected):
 def test_color_equality(color1, color2, expected):
     assert (color1 == color2) == expected
     assert (color1 != color2) != expected
+
+@pytest.mark.parametrize("color1,color2,t,expected", [
+    (tincture.Color(2, 2, 2), tincture.Color(4, 3, 2), 1.0, tincture.Color(4, 3, 2)),
+    (tincture.Color(20, 52, 86), tincture.Color(20, 52, 86), 0.0, tincture.Color(20, 52, 86)),
+    (tincture.Color(20, 52, 86), tincture.Color(20, 52, 86), 0.5, tincture.Color(20, 52, 86)),
+    (tincture.Color(20, 52, 86), tincture.Color(20, 52, 86), 1.0, tincture.Color(20, 52, 86)),
+    (tincture.Color(121, 211, 32), tincture.Color(64, 92, 41), 0.5, tincture.Color(92, 151, 36)),
+    (tincture.RED, tincture.BLUE, 0.4, tincture.Color(153, 0, 102)),
+    (tincture.GREEN, tincture.PURPLE, 0.6, tincture.Color(75, 102, 153)),
+])
+def test_color_mlerp(color1, color2, t, expected):
+    result = tincture.Color.mlerp(color1,color2, t)
+    color_cloned = color1.copy()
+    color_cloned.mlerp_inplace(color2, t)
+    color_cloned2 = color2.copy()
+    color_cloned2.mlerp_inplace(color1, 1.0 - t)
+    assert result.approx_equal(color_cloned, 1)
+    assert color_cloned2.approx_equal(tincture.Color.mlerp(color2, color1, 1.0 - t), 1)
+    assert expected.approx_equal(result, 1)
+
+@pytest.mark.parametrize("color1,color2,t,expected", [
+    (tincture.Color(2, 2, 2), tincture.Color(4, 3, 2), 1.0, tincture.Color(4, 3, 2)),
+    (tincture.Color(20, 52, 86), tincture.Color(20, 52, 86), 0.0, tincture.Color(20, 52, 86)),
+    (tincture.Color(20, 52, 86), tincture.Color(20, 52, 86), 0.5, tincture.Color(20, 52, 86)),
+    (tincture.Color(20, 52, 86), tincture.Color(20, 52, 86), 1.0, tincture.Color(20, 52, 86)),
+    (tincture.Color(121, 211, 32), tincture.Color(64, 92, 41), 0.5, tincture.Color(93, 147, 42)),
+    (tincture.RED, tincture.BLUE, 0.4, tincture.Color(0, 125, 35)),
+    (tincture.GREEN, tincture.PURPLE, 0.6, tincture.Color(75, 102, 153)),
+])
+def test_color_clerp(color1, color2, t, expected):
+    result = tincture.Color.clerp(color1,color2, t)
+    color_cloned = color1.copy()
+    color_cloned.clerp_inplace(color2, t)
+    color_cloned2 = color2.copy()
+    color_cloned2.clerp_inplace(color1, 1.0 - t)
+    assert result.approx_equal(color_cloned, 1)
+    assert color_cloned2.approx_equal(tincture.Color.clerp(color2, color1, 1.0 - t), 1)
+    print(expected, result)
+    assert result.approx_equal(expected, 1)

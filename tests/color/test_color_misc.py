@@ -1,5 +1,6 @@
 import pytest
 import tincture
+import copy
 
 @pytest.mark.parametrize("color,expected", [
     (tincture.Color(1, 2, 3), "(1 : 2 : 3 : 255)"),
@@ -63,3 +64,17 @@ def test_color_approx_equal(color, color2, diff, expected):
         color2.b - diff <= color.b <= color2.b + diff and \
         color2.a - diff <= color.a <= color2.a + diff
     assert color.approx_equal(color2, diff, True) == result == expected
+
+randomised = tincture.Color.randomise(tincture.WHITE)
+
+@pytest.mark.parametrize("color,expected", [
+    (tincture.Color(106, 240, 117), tincture.Color(106, 240, 117)),
+    (tincture.WHITE, tincture.WHITE),
+    (tincture.TEAL, tincture.TEAL),
+    (tincture.LIGHT_RED, tincture.LIGHT_RED),
+    (tincture.VIVID_BLUE, tincture.VIVID_BLUE),
+    (tincture.Color(30, 90, 0, 0), tincture.Color(30, 90, 0, 0)),
+    (randomised, randomised),
+])
+def test_color_copy(color, expected):
+    assert color.copy() == copy.copy(color) == expected
