@@ -12,12 +12,20 @@ pub(crate) fn interpret_to_hex(adjusted_str: &str, range: Range<usize>) -> Resul
     }
 }
 
-pub(crate) fn wrap_around_bigint(value: BigInt) -> u32 {
+pub(crate) fn wrap_around_bigint(value: BigInt) -> (Sign, u32) {
     let sign_and_digits: (Sign, Vec<u32>) = value.to_u32_digits();
     if sign_and_digits.0 == Sign::NoSign && sign_and_digits.1 == Vec::<u32>::new() {
-        return 0;
+        return (Sign::NoSign, 0);
     }
-    sign_and_digits.1[0]
+    (sign_and_digits.0, sign_and_digits.1[0])
+}
+
+pub(crate) fn wrap_around_bigint_as_i16(value: BigInt) -> i16 {
+    let result = wrap_around_bigint(value);
+    if result.0 == Sign::Minus {
+        return -(result.1 as i16);
+    }
+    result.1 as i16
 }
 
 pub(crate) fn color_to_decimal_rgb(color: Color) -> (f32, f32, f32) {
@@ -91,6 +99,7 @@ pub(crate) fn calculate_hs(color: Color) -> (u16, f32, f32, f32) {
     }
 
     h *= 60.0;
+    h = h.rem_euclid(360.0);
 
     let s: f32 = if c_max != 0.0 { delta / c_max } else { 0.0 };
 
