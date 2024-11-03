@@ -5,6 +5,10 @@ use pyo3::PyResult;
 use std::f32::consts::PI;
 use std::ops::Range;
 
+pub(crate) fn create_bigint_from_u8(val: u8) -> BigInt {
+    BigInt::new(Sign::Plus, vec![val as u32])
+}
+
 pub(crate) fn interpret_to_hex(adjusted_str: &str, range: Range<usize>) -> Result<u8, String> {
     match u8::from_str_radix(&adjusted_str[range], 16) {
         Ok(r) => Ok(r),
@@ -38,26 +42,26 @@ pub(crate) fn color_to_decimal_rgb(color: Color) -> (f32, f32, f32) {
 
 pub(crate) fn color_to_oklab(color: Color) -> (f32, f32, f32) {
     let rgba = color_to_decimal_rgb(color);
-    let l: f32 = (0.4122214708 * &rgba.0)
-        + (0.5363325363 * &rgba.1)
-        + (0.0514459929 * &rgba.2);
+    let l: f32 = (0.412_221_46 * &rgba.0)
+        + (0.536_332_55 * &rgba.1)
+        + (0.051_445_995 * &rgba.2);
 
-    let a: f32 = (0.2119034982 * &rgba.0)
-        + (0.6806995451 * &rgba.1)
-        + (0.1073969566 * &rgba.2);
+    let a: f32 = (0.211_903_5 * &rgba.0)
+        + (0.680_699_5 * &rgba.1)
+        + (0.107_396_96 * &rgba.2);
 
-    let b: f32 = (0.0883024619 * rgba.0)
-        + (0.2817188376 * rgba.1)
-        + (0.6299787005 * rgba.2);
+    let b: f32 = (0.088_302_46 * rgba.0)
+        + (0.281_718_85 * rgba.1)
+        + (0.629_978_7 * rgba.2);
 
     let l_sqrt_cube: f32 = l.powf(3.333333);
     let a_sqrt_cube: f32 = a.powf(3.333333);
     let b_sqrt_cube: f32 = b.powf(3.333333);
 
     (
-        (0.2104542553 * l_sqrt_cube) + (0.7936177850 * a_sqrt_cube) - (0.0040720468 * b_sqrt_cube),
-        (1.9779984951 * l_sqrt_cube) - (2.4285922050 * a_sqrt_cube) + (0.4505937099 * b_sqrt_cube),
-        (0.0259040371 * l_sqrt_cube) + (0.7827717662 * a_sqrt_cube) - (0.8086757660 * b_sqrt_cube),
+        (0.210_454_26 * l_sqrt_cube) + (0.793_617_8 * a_sqrt_cube) - (0.004_072_047 * b_sqrt_cube),
+        (1.977_998_5 * l_sqrt_cube) - (2.428_592_2 * a_sqrt_cube) + (0.450_593_7 * b_sqrt_cube),
+        (0.025_904_037 * l_sqrt_cube) + (0.782_771_77 * a_sqrt_cube) - (0.808_675_77 * b_sqrt_cube),
     )
 }
 
@@ -116,12 +120,70 @@ pub(crate) fn to_whole_rgb(r: f32, g: f32, b: f32, a: f32) -> Color {
     }
 }
 
+
+pub(crate) fn unwrap_color(color: Color) -> (u8, u8, u8, u8) {
+    (color.r, color.g, color.b, color.a)
+}
+
+
 pub(crate) fn find_invalid_percentage_range(val: f32, name: &str) -> PyResult<()> {
-    if val < 0.0 || val > 1.0 {
+    if !(0.0..=1.0).contains(&val) {
         return Err(PyValueError::new_err(format!(
-            "{} percentage must be between 0 and 1",
+            "{} percentage must be between 0.0 and 1.0",
             name
         )));
     }
     Ok(())
+}
+
+pub(crate) fn color_add_color(value: &Color, other: &Color, include_transparency: bool) -> Color {
+    Color {
+        r: ((value.r as u16) + (other.r as u16)).min(255) as u8,
+        g: ((value.g as u16) + (other.g as u16)).min(255) as u8,
+        b: ((value.b as u16) + (other.b as u16)).min(255) as u8,
+        a: if include_transparency {
+            ((value.a as u16) + (other.a as u16)).min(255) as u8
+        } else {
+            value.a
+        },
+    }
+}
+
+pub(crate) fn color_add_scalar(value: &Color, other: BigInt, include_transparency: bool) -> Color {
+    Color {
+        r: (wrap_around_bigint(create_bigint_from_u8(value.r) + &other).1).min(255) as u8,
+        g: (wrap_around_bigint(create_bigint_from_u8(value.g) + &other).1).min(255) as u8,
+        b: (wrap_around_bigint(create_bigint_from_u8(value.b) + &other).1).min(255) as u8,
+        a: if include_transparency {
+            (wrap_around_bigint(create_bigint_from_u8(value.a) + &other).1).min(255) as u8
+        } else {
+            value.a
+        },
+    }
+}
+
+pub(crate) fn color_sub_color(value: &Color, other: &Color, include_transparency: bool) -> Color {
+    Color {
+        r: ((value.r as i16) - (other.r as i16)).max(0) as u8,
+        g: ((value.g as i16) - (other.g as i16)).max(0) as u8,
+        b: ((value.b as i16) - (other.b as i16)).max(0) as u8,
+        a: if include_transparency {
+            ((value.a as i16) - (other.a as i16)).max(0) as u8
+        } else {
+            value.a
+        },
+    }
+}
+
+pub(crate) fn color_sub_scalar(value: &Color, other: BigInt, include_transparency: bool) -> Color {
+    Color {
+        r: (wrap_around_bigint(create_bigint_from_u8(value.r) - &other).1).min(255) as u8,
+        g: (wrap_around_bigint(create_bigint_from_u8(value.g) - &other).1).min(255) as u8,
+        b: (wrap_around_bigint(create_bigint_from_u8(value.b) - &other).1).min(255) as u8,
+        a: if include_transparency {
+            (wrap_around_bigint(create_bigint_from_u8(value.a) - &other).1).min(255) as u8
+        } else {
+            value.a
+        },
+    }
 }
