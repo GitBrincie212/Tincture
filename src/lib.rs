@@ -1,4 +1,6 @@
 #![allow(unused_must_use)]
+#![allow(clippy::wrong_self_convention)]
+
 mod color;
 
 use pyo3::prelude::*;
@@ -6,6 +8,7 @@ use pyo3::prelude::*;
 #[pymodule]
 fn tincture(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<color::Color>();
+    m.add_class::<color::blending::BlendingMode>();
     m.add("WHITE", color::consts::WHITE);
     m.add("RED", color::consts::RED);
     m.add("BLUE", color::consts::BLUE);

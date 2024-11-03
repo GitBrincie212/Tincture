@@ -1,7 +1,7 @@
 use crate::color::utils::*;
 use num_bigint::{BigInt, Sign};
-use pyo3::exceptions::{PyIndexError, PyValueError, PyZeroDivisionError};
-use pyo3::types::{PyList, PyTuple};
+use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError, PyZeroDivisionError};
+use pyo3::types::{PyAnyMethods, PyList, PyTuple};
 use pyo3::{pyclass, pymethods, Bound, FromPyObject, PyResult, Python};
 use rand::Rng;
 use std::collections::hash_map::DefaultHasher;
@@ -9,9 +9,11 @@ use std::f32;
 use std::f32::consts::PI;
 use std::hash::{Hash, Hasher};
 use std::iter::zip;
+use pyo3::prelude::PyTupleMethods;
 
 mod utils;
 pub mod consts;
+pub mod blending;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 #[pyclass]
@@ -32,6 +34,22 @@ pub enum ColorAccessCode {
     Integer(u8),
     #[pyo3(transparent, annotation = "str")]
     String(String),
+}
+
+#[derive(FromPyObject)]
+pub enum ColorOrScalar {
+    #[pyo3(transparent, annotation = "int")]
+    Integer(BigInt),
+    #[pyo3(transparent, annotation = "Color")]
+    Color(Color),
+}
+
+#[derive(FromPyObject)]
+pub enum ColorOrFloat {
+    #[pyo3(transparent, annotation = "float")]
+    Float(f32),
+    #[pyo3(transparent, annotation = "Color")]
+    Color(Color),
 }
 
 #[pymethods]
@@ -74,11 +92,11 @@ impl Color {
     #[staticmethod]
     #[pyo3(signature = (x, y, z, transparency=1.0))]
     pub fn from_xyz(x: f32, y: f32, z: f32, transparency: f32) -> PyResult<Color> {
-        if x < 0.0 || x > 95.047 {
+        if !(0.0..=95.047).contains(&x) {
             return Err(PyValueError::new_err("X must be between 0 and 95"));
-        } else if y < 0.0 || y > 100.0 {
+        } else if !(0.0..=100.0).contains(&y) {
             return Err(PyValueError::new_err("Y must be between 0.0 and 100.0"));
-        } else if z < 0.0 && z > 108.883 {
+        } else if !(0.0..=108.883).contains(&z) {
             return Err(PyValueError::new_err("Z must be between 0.0 and 108.883"));
         }
         find_invalid_percentage_range(transparency, "Transparency")?;
@@ -111,15 +129,14 @@ impl Color {
 
     #[staticmethod]
     pub fn from_lch(l: f32, c: f32, h: i16, transparency: f32) -> PyResult<Color> {
-        if l < 0.0 || l > 100.0 {
+        if !(0.0..=100.0).contains(&l) {
             return Err(PyValueError::new_err("L must be between 0 and 100"));
-        } else if l < 0.0 || c > 200.0 {
+        } else if !(0.0..200.0).contains(&c) {
             return Err(PyValueError::new_err("C must be between 0 and 200"));
         }
         find_invalid_percentage_range(transparency, "Transparency")?;
-
         let mut h_scoped: f32 = (h as f32).rem_euclid(360.0);
-        h_scoped = h_scoped * (PI / 180.0);
+        h_scoped *= PI / 180.0;
         let a: f32 = h_scoped.cos() * c;
         let b: f32 = h_scoped.sin() * c;
         Ok(Color::from_oklab(l, a, b, transparency))
@@ -132,7 +149,7 @@ impl Color {
         find_invalid_percentage_range(v, "Value")?;
         find_invalid_percentage_range(transparency, "Transparency")?;
         let mut adjusted_h: f32 = (h as f32).rem_euclid(360.0);
-        adjusted_h = adjusted_h / 360.0;
+        adjusted_h /= 360.0;
         let floored_h: f32 = adjusted_h.floor();
         let diff: f32 = adjusted_h - floored_h;
         let a: f32 = v * (1.0 - s);
@@ -202,19 +219,19 @@ impl Color {
     #[staticmethod]
     #[pyo3(signature = (l, a, b, transparency=1.0))]
     pub fn from_oklab(l: f32, a: f32, b: f32, transparency: f32) -> Color {
-        let l_new: f32 = l + (0.3963377774 * a) + (0.2158037573 * b);
-        let a_new: f32 = l - (0.1055613458 * a) - (0.0638541728 * b);
-        let b_new: f32 = l - (0.0894841775 * a) - (1.2914855480 * b);
+        let l_new: f32 = l + (0.396_337_78 * a) + (0.215_803_76 * b);
+        let a_new: f32 = l - (0.105_561_346 * a) - (0.063_854_17 * b);
+        let b_new: f32 = l - (0.089_484_18 * a) - (1.291_485_5 * b);
 
         let l_cubed: f32 = l_new.powi(3);
         let a_cubed: f32 = a_new.powi(3);
         let b_cubed: f32 = b_new.powi(3);
 
-        let r: f32 = (4.0767416621 * l_cubed) - (3.3077115913 * a_cubed) + (0.2309699292 * b_cubed);
+        let r: f32 = (4.076_741_7 * l_cubed) - (3.307_711_6 * a_cubed) + (0.230_969_94 * b_cubed);
         let g: f32 =
-            (-1.2684380046 * l_cubed) + (2.6097574011 * a_cubed) - (0.3413193965 * b_cubed);
+            (-1.268_438 * l_cubed) + (2.609_757_4 * a_cubed) - (0.341_319_38 * b_cubed);
         let b: f32 =
-            (-0.0041960863 * l_cubed) - (0.7034186147 * a_cubed) + (1.7076147010 * b_cubed);
+            (-0.0041960863 * l_cubed) - (0.703_418_6 * a_cubed) + (1.707_614_7 * b_cubed);
         Color {
             r: r.floor() as u8,
             g: g.floor() as u8,
@@ -248,15 +265,15 @@ impl Color {
             (one_minus_t * (start.a as f32)) + (t * (end.a as f32)),
         );
         println!("{:?}", new_values);
-        Ok(Color::from_lch(
+        Color::from_lch(
             new_values.0,
             new_values.1,
             new_values.2.floor() as i16,
             new_values.3 / 255.0
-        )?)
+        )
     }
 
-    pub fn mlerp_inplace(&mut self, _python: Python, end: Color, t: f32) -> PyResult<()> {
+    pub fn mlerp_inplace(&mut self, end: Color, t: f32) -> PyResult<()> {
         find_invalid_percentage_range(t, "t")?;
         let result: Color = Color::mlerp(*self, end, t)?;
         self.r = result.r;
@@ -266,7 +283,7 @@ impl Color {
         Ok(())
     }
 
-    pub fn clerp_inplace(&mut self, _python: Python, end: Color, t: f32) -> PyResult<()> {
+    pub fn clerp_inplace(&mut self, end: Color, t: f32) -> PyResult<()> {
         let result: Color = Color::clerp(*self, end, t)?;
         self.r = result.r;
         self.g = result.g;
@@ -275,45 +292,63 @@ impl Color {
         Ok(())
     }
 
+    #[staticmethod]
+    #[pyo3(signature = (blend_mode, *args))]
+    pub fn blend(blend_mode: blending::BlendingMode, args: Bound<'_, PyTuple>) -> PyResult<Color> {
+        let mut iterator = args.iter();
+        let first_color: PyResult<Color> = iterator.next()
+            .ok_or_else(|| PyTypeError::new_err("The tuple must contain color types only"))?
+            .extract();
+        let mut blended_color = unwrap_color(first_color?);
+        for arg in iterator {
+            match arg.extract::<Color>() {
+                Ok(color) => {
+                    let rgba1 = (
+                        (blended_color.0 as f32) / 255.0,
+                        (blended_color.1 as f32) / 255.0,
+                        (blended_color.2 as f32) / 255.0,
+                        (blended_color.3 as f32) / 255.0,
+                    );
+                    let rgb2 = color_to_decimal_rgb(color);
+                    let blended = blending::compute_blend(&blend_mode, rgba1, rgb2);
+                    let result = to_whole_rgb(blended.0, blended.1, blended.2, blended.3);
+                    blended_color = unwrap_color(result);
+                },
+                Err(_) => {
+                    return Err(PyTypeError::new_err("The tuple must contain color types only"));
+                }
+            }
+        }
+        Ok(Color::new(blended_color.0, blended_color.0, blended_color.2, blended_color.3))
+    }
+
     #[pyo3(signature = (other, include_transparency=false))]
-    pub fn add(&mut self, _python: Python, other: &Color, include_transparency: bool) -> Color {
-        Color {
-            r: ((self.r as u16) + (other.r as u16)).min(255) as u8,
-            g: ((self.g as u16) + (other.g as u16)).min(255) as u8,
-            b: ((self.b as u16) + (other.b as u16)).min(255) as u8,
-            a: if include_transparency {
-                ((self.a as u16) + (other.a as u16)).min(255) as u8
-            } else {
-                self.a
-            },
+    pub fn add(&mut self, other: ColorOrScalar, include_transparency: bool) -> Color {
+        match other {
+            ColorOrScalar::Color(c) => color_add_color(self, &c, include_transparency),
+            ColorOrScalar::Integer(i) => color_add_scalar(self, i, include_transparency),
         }
     }
 
     #[pyo3(signature = (other, include_transparency=false))]
-    pub fn sub(&mut self, _python: Python, other: &Color, include_transparency: bool) -> Color {
-        Color {
-            r: ((self.r as i16) - (other.r as i16)).max(0) as u8,
-            g: ((self.g as i16) - (other.g as i16)).max(0) as u8,
-            b: ((self.b as i16) - (other.b as i16)).max(0) as u8,
-            a: if include_transparency {
-                ((self.a as i16) - (other.a as i16)).max(0) as u8
-            } else {
-                self.a
-            },
+    pub fn sub(&mut self, other: ColorOrScalar, include_transparency: bool) -> Color {
+        match other {
+            ColorOrScalar::Color(c) => color_sub_color(self, &c, include_transparency),
+            ColorOrScalar::Integer(i) => color_sub_scalar(self, i, include_transparency),
         }
     }
 
     #[pyo3(signature = (scalar, include_transparency=false))]
-    pub fn mul(&mut self, _python: Python, scalar: f32, include_transparency: bool) -> Color {
+    pub fn mul(&mut self, scalar: f32, include_transparency: bool) -> Color {
         if scalar <= 0.0 {
             return Color::new(0, 0, 0, if include_transparency { 0 } else { self.a });
         }
         Color {
-            r: ((self.r as f32) * (scalar)).clamp(0.0, 255.0).floor() as u8,
-            g: ((self.g as f32) * (scalar)).clamp(0.0, 255.0).floor() as u8,
-            b: ((self.b as f32) * (scalar)).clamp(0.0, 255.0).floor() as u8,
+            r: ((self.r as f32) * scalar).clamp(0.0, 255.0).floor() as u8,
+            g: ((self.g as f32) * scalar).clamp(0.0, 255.0).floor() as u8,
+            b: ((self.b as f32) * scalar).clamp(0.0, 255.0).floor() as u8,
             a: if include_transparency {
-                ((self.a as f32) * (scalar)).clamp(0.0, 255.0).floor() as u8
+                ((self.a as f32) * scalar).clamp(0.0, 255.0).floor() as u8
             } else {
                 self.a
             },
@@ -343,7 +378,7 @@ impl Color {
     }
 
     #[pyo3(signature = (other, include_transparency=false))]
-    pub fn tensor(&mut self, _python: Python, other: Color, include_transparency: bool) -> Color {
+    pub fn tensor(&self, other: Color, include_transparency: bool) -> Color {
         Color {
             r: ((self.r as u16) * (other.r as u16)).clamp(0, 255) as u8,
             g: ((self.g as u16) * (other.g as u16)).clamp(0, 255) as u8,
@@ -381,7 +416,7 @@ impl Color {
     }
 
     #[pyo3(signature = (other, include_transparency=false))]
-    pub fn max(&self, _python: Python, other: Color, include_transparency: bool) -> Color {
+    pub fn max(&self, other: Color, include_transparency: bool) -> Color {
         Color {
             r: self.r.max(other.r),
             g: self.g.max(other.g),
@@ -409,7 +444,7 @@ impl Color {
     }
 
     #[pyo3(signature = (include_transparency=false))]
-    pub fn inverse(&self, _python: Python, include_transparency: bool) -> Color {
+    pub fn inverse(&self, include_transparency: bool) -> Color {
         Color {
             r: 255 - self.r,
             g: 255 - self.g,
@@ -433,7 +468,7 @@ impl Color {
         }
     }
 
-    pub fn triadic_colors<'a>(&self, python: Python<'a>) -> [Color; 2] {
+    pub fn triadic_colors(&self, python: Python<'_>) -> [Color; 2] {
         let results: (u16, f32, f32, f32) = self.to_hsl(python);
         let hue_one: i16 = ((results.0 + 120).rem_euclid(360)) as i16;
         let hue_two: i16 = ((results.0 as i16) - 120).rem_euclid(360);
@@ -443,7 +478,7 @@ impl Color {
         ]
     }
 
-    pub fn adjust_temperature(&mut self, _python: Python, temperature: BigInt) {
+    pub fn adjust_temperature(&mut self, temperature: BigInt) {
         if temperature == BigInt::ZERO {
             return;
         }
@@ -457,7 +492,7 @@ impl Color {
         self.b = ((self.b as u16) - adjusted_temp).clamp(0, 255) as u8;
     }
 
-    pub fn contrast(&mut self, _python: Python, factor: f32) {
+    pub fn contrast(&mut self, factor: f32) {
         if factor == 0.0 {
             return;
         }
@@ -467,7 +502,7 @@ impl Color {
         self.b = (127.5 + ((self.b as f32) - 127.5) * new_factor).clamp(0.0, 255.0).floor() as u8;
     }
 
-    pub fn brightness(&self, _python: Python, factor: f32) -> Color {
+    pub fn brightness(&self, factor: f32) -> Color {
         if factor == 0.0 {
             return *self;
         }
@@ -491,15 +526,15 @@ impl Color {
         let hsl: (u16, f32, f32, f32) = self.to_hsl(python);
         let adjusted_degrees: i16 = wrap_around_bigint_as_i16(degrees.clone());
         let hue: i16 = ((hsl.0 as i16) + adjusted_degrees).rem_euclid(360);
-        Ok(Color::from_hsl(hue, hsl.1, hsl.2, (self.a as f32) / 255.0)?)
+        Color::from_hsl(hue, hsl.1, hsl.2, (self.a as f32) / 255.0)
     }
 
-    pub fn saturate(&self, _python: Python, factor: f32) -> Color {
+    pub fn saturate(&self, factor: f32) -> Color {
         if factor == 0.0 {
             return *self;
         }
         let mut hsv: (u16, f32, f32) = color_to_hsv(*self);
-        hsv.1 = hsv.1 * (factor + 1.0);
+        hsv.1 *= factor + 1.0;
         Color::from_hsv(hsv.0 as i16, hsv.1, hsv.2, (self.a as f32) / 255.0).unwrap()
     }
 
@@ -594,12 +629,12 @@ impl Color {
             && alpha_part
     }
 
-    pub fn copy(&self, _python: Python) -> Color {
+    pub fn copy(&self) -> Color {
         Color {r: self.r, g: self.g, b: self.b, a: self.a}
     }
 
     #[pyo3(signature = (include_transparency=false))]
-    pub fn to_hex(&self, _python: Python, include_transparency: bool) -> String {
+    pub fn to_hex(&self, include_transparency: bool) -> String {
         let hex_str = format!("#{:x?}{:x?}{:x?}", self.r, self.g, self.b);
         if include_transparency {
             hex_str + &format!("{:x?}", self.a)
@@ -617,12 +652,11 @@ impl Color {
         let values: (u16, f32, f32, f32) = calculate_hs(*self);
         let l: f32 = (values.2 + values.3) / 2.0;
         let delta: f32 = values.2 - values.3;
-        let s: f32;
-        if delta == 0.0 {
-            s = 0.0;
+        let s: f32 = if delta == 0.0 {
+            0.0
         } else {
-            s = delta / (1.0 - (2.0 * l - 1.0).abs());
-        }
+            delta / (1.0 - (2.0 * l - 1.0).abs())
+        };
         (values.0, s, l, (self.a as f32) / 255.0)
     }
 
@@ -714,16 +748,19 @@ impl Color {
         format!("Color({}, {}, {}, {})", self.r, self.g, self.b, self.a)
     }
 
-    pub fn __add__(&mut self, python: Python, other: Color) -> Color {
-        self.add(python, &other, true)
+    pub fn __add__(&mut self, other: ColorOrScalar) -> Color {
+        self.add(other, true)
     }
 
-    pub fn __sub__(&mut self, python: Python, other: Color) -> Color {
-        self.sub(python, &other, true)
+    pub fn __sub__(&mut self, other: ColorOrScalar) -> Color {
+        self.sub(other, true)
     }
 
-    pub fn __mul__(&mut self, python: Python, other: f32) -> Color {
-        self.mul(python, other, true)
+    pub fn __mul__(&mut self, other: ColorOrFloat) -> Color {
+        match other {
+            ColorOrFloat::Color(c) => self.tensor(c, true),
+            ColorOrFloat::Float(f) => self.mul(f, true),
+        }
     }
 
     pub fn __truediv__(&mut self, python: Python, other: f32) -> PyResult<Color> {
@@ -751,18 +788,18 @@ impl Color {
         (self.r as u32) + (self.g as u32) + (self.b as u32) + (self.a as u32) != 0
     }
 
-    pub fn __eq__(&self, _python: Python, other: Color) -> bool {
+    pub fn __eq__(&self, other: Color) -> bool {
         self.r == other.r && self.b == other.b && self.g == other.g && self.a == other.a
     }
-    pub fn __ne__(&self, _python: Python, other: Color) -> bool {
+    pub fn __ne__(&self, other: Color) -> bool {
         self.r != other.r || self.b != other.b || self.g != other.g || self.a != other.a
     }
 
-    pub fn __neg__(&self, python: Python) -> Color {
-        self.inverse(python, true)
+    pub fn __neg__(&self) -> Color {
+        self.inverse(true)
     }
 
-    pub fn __pow__(&self, _python: Python, color: Color, base: f32) -> Color {
+    pub fn __pow__(&self, color: Color, base: f32) -> Color {
         Color {
             r: (color.r as f32).powf(base).floor() as u8,
             g: (color.g as f32).powf(base).floor() as u8,
@@ -771,11 +808,11 @@ impl Color {
         }
     }
 
-    pub fn __rpow__(&self, python: Python, color: Color, base: f32) -> Color {
-        self.__pow__(python, color, base)
+    pub fn __rpow__(&self, color: Color, base: f32) -> Color {
+        self.__pow__(color, base)
     }
 
-    pub fn __getitem__(&self, _python: Python, access_code: ColorAccessCode) -> PyResult<u8> {
+    pub fn __getitem__(&self, access_code: ColorAccessCode) -> PyResult<u8> {
         let adjusted_access_code = access_code;
         if let ColorAccessCode::String(value) = adjusted_access_code {
             return match value.to_lowercase().as_str() {
@@ -852,13 +889,13 @@ impl Color {
         }
     }
 
-    fn shift(&self, _python: Python, places: BigInt) -> Color {
+    fn shift(&self, places: BigInt) -> Color {
         let four: BigInt = BigInt::from(4);
         if (&places % &four) == BigInt::ZERO {
             return *self;
         }
         let mut arr: [u8; 4] = [self.r, self.g, self.b, self.a];
-        let arr_clone: [u8; 4] = arr.clone();
+        let arr_clone: [u8; 4] = arr;
         let mut adjusted_places: BigInt = places % &four;
         adjusted_places = if adjusted_places < BigInt::ZERO {
             &four - adjusted_places
@@ -879,17 +916,17 @@ impl Color {
         }
     }
 
-    pub fn __rshift__(&self, python: Python, places: BigInt) -> Color {
-        self.shift(python, places)
+    pub fn __rshift__(&self, places: BigInt) -> Color {
+        self.shift(places)
     }
 
-    pub fn __lshift__(&self, python: Python, places: BigInt) -> Color {
-        self.shift(python, -places)
+    pub fn __lshift__(&self, places: BigInt) -> Color {
+        self.shift(-places)
     }
 
-    pub fn __copy__(&self, python: Python) -> Color {
-        self.copy(python)
+    pub fn __copy__(&self) -> Color {
+        self.copy()
     }
 
-    pub fn __sizeof__(&self, _python: Python) -> usize { 32 }
+    pub fn __sizeof__(&self) -> usize { 32 }
 }
