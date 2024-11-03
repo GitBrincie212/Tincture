@@ -6,6 +6,7 @@ mod color;
 use pyo3::prelude::*;
 
 #[pymodule]
+#[pyo3(name="tincture")]
 fn tincture(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<color::Color>();
     m.add_class::<color::blending::BlendingMode>();
@@ -45,6 +46,5 @@ fn tincture(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("LIGHT_TEAL", color::consts::LIGHT_TEAL);
     m.add("LIGHT_PINK", color::consts::LIGHT_PINK);
     m.add("VIVID_BLUE", color::consts::VIVID_BLUE);
-    m.add("DEFAULT_BACKGROUND", color::consts::DEFAULT_BACKGROUND);
     Ok(())
 }

@@ -219,9 +219,3 @@ pub const DARK_TEAL: color::Color = color::Color {
     b: 93,
     a: 255,
 };
-pub const DEFAULT_BACKGROUND: color::Color = color::Color {
-    r: 27,
-    g: 29,
-    b: 33,
-    a: 255,
-};
