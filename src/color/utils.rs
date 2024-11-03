@@ -42,17 +42,11 @@ pub(crate) fn color_to_decimal_rgb(color: Color) -> (f32, f32, f32) {
 
 pub(crate) fn color_to_oklab(color: Color) -> (f32, f32, f32) {
     let rgba = color_to_decimal_rgb(color);
-    let l: f32 = (0.412_221_46 * &rgba.0)
-        + (0.536_332_55 * &rgba.1)
-        + (0.051_445_995 * &rgba.2);
+    let l: f32 = (0.412_221_46 * &rgba.0) + (0.536_332_55 * &rgba.1) + (0.051_445_995 * &rgba.2);
 
-    let a: f32 = (0.211_903_5 * &rgba.0)
-        + (0.680_699_5 * &rgba.1)
-        + (0.107_396_96 * &rgba.2);
+    let a: f32 = (0.211_903_5 * &rgba.0) + (0.680_699_5 * &rgba.1) + (0.107_396_96 * &rgba.2);
 
-    let b: f32 = (0.088_302_46 * rgba.0)
-        + (0.281_718_85 * rgba.1)
-        + (0.629_978_7 * rgba.2);
+    let b: f32 = (0.088_302_46 * rgba.0) + (0.281_718_85 * rgba.1) + (0.629_978_7 * rgba.2);
 
     let l_sqrt_cube: f32 = l.powf(3.333333);
     let a_sqrt_cube: f32 = a.powf(3.333333);
@@ -91,16 +85,16 @@ pub(crate) fn calculate_hs(color: Color) -> (u16, f32, f32, f32) {
     let c_max: f32 = rgb.0.max(rgb.1).max(rgb.2);
     let c_min: f32 = rgb.0.min(rgb.1).min(rgb.2);
     let delta: f32 = c_max - c_min;
-    let mut h: f32;
+    let mut h: f32 = 0.0;
 
-    if c_max == rgb.0 {
+    if delta == 0.0 {
+        h = 0.0
+    } else if c_max == rgb.0 {
         h = ((rgb.1 - rgb.2) / delta) % 6.0;
     } else if c_max == rgb.1 {
         h = ((rgb.2 - rgb.0) / delta) + 2.0;
     } else if c_max == rgb.2 {
         h = ((rgb.0 - rgb.1) / delta) + 4.0;
-    } else {
-        h = 0.0
     }
 
     h *= 60.0;
@@ -120,11 +114,9 @@ pub(crate) fn to_whole_rgb(r: f32, g: f32, b: f32, a: f32) -> Color {
     }
 }
 
-
 pub(crate) fn unwrap_color(color: Color) -> (u8, u8, u8, u8) {
     (color.r, color.g, color.b, color.a)
 }
-
 
 pub(crate) fn find_invalid_percentage_range(val: f32, name: &str) -> PyResult<()> {
     if !(0.0..=1.0).contains(&val) {

@@ -1,6 +1,7 @@
 use crate::color::utils::*;
 use num_bigint::{BigInt, Sign};
 use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError, PyZeroDivisionError};
+use pyo3::prelude::PyTupleMethods;
 use pyo3::types::{PyAnyMethods, PyList, PyTuple};
 use pyo3::{pyclass, pymethods, Bound, FromPyObject, PyResult, Python};
 use rand::Rng;
@@ -9,11 +10,10 @@ use std::f32;
 use std::f32::consts::PI;
 use std::hash::{Hash, Hasher};
 use std::iter::zip;
-use pyo3::prelude::PyTupleMethods;
 
-mod utils;
-pub mod consts;
 pub mod blending;
+pub mod consts;
+mod utils;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 #[pyclass]
@@ -228,10 +228,8 @@ impl Color {
         let b_cubed: f32 = b_new.powi(3);
 
         let r: f32 = (4.076_741_7 * l_cubed) - (3.307_711_6 * a_cubed) + (0.230_969_94 * b_cubed);
-        let g: f32 =
-            (-1.268_438 * l_cubed) + (2.609_757_4 * a_cubed) - (0.341_319_38 * b_cubed);
-        let b: f32 =
-            (-0.0041960863 * l_cubed) - (0.703_418_6 * a_cubed) + (1.707_614_7 * b_cubed);
+        let g: f32 = (-1.268_438 * l_cubed) + (2.609_757_4 * a_cubed) - (0.341_319_38 * b_cubed);
+        let b: f32 = (-0.0041960863 * l_cubed) - (0.703_418_6 * a_cubed) + (1.707_614_7 * b_cubed);
         Color {
             r: r.floor() as u8,
             g: g.floor() as u8,
@@ -248,7 +246,7 @@ impl Color {
             r: ((t_inverted * start.r as f32) + t * (end.r as f32)).floor() as u8,
             g: ((t_inverted * start.g as f32) + t * (end.g as f32)).floor() as u8,
             b: ((t_inverted * start.b as f32) + t * (end.b as f32)).floor() as u8,
-            a: ((t_inverted * start.a as f32) + t * (end.a as f32)).floor() as u8
+            a: ((t_inverted * start.a as f32) + t * (end.a as f32)).floor() as u8,
         })
     }
 
@@ -264,12 +262,11 @@ impl Color {
             (one_minus_t * (lch_start.2 as f32)) + (t * (lch_end.2 as f32)),
             (one_minus_t * (start.a as f32)) + (t * (end.a as f32)),
         );
-        println!("{:?}", new_values);
         Color::from_lch(
             new_values.0,
             new_values.1,
             new_values.2.floor() as i16,
-            new_values.3 / 255.0
+            new_values.3 / 255.0,
         )
     }
 
@@ -296,7 +293,8 @@ impl Color {
     #[pyo3(signature = (blend_mode, *args))]
     pub fn blend(blend_mode: blending::BlendingMode, args: Bound<'_, PyTuple>) -> PyResult<Color> {
         let mut iterator = args.iter();
-        let first_color: PyResult<Color> = iterator.next()
+        let first_color: PyResult<Color> = iterator
+            .next()
             .ok_or_else(|| PyTypeError::new_err("The tuple must contain color types only"))?
             .extract();
         let mut blended_color = unwrap_color(first_color?);
@@ -313,13 +311,20 @@ impl Color {
                     let blended = blending::compute_blend(&blend_mode, rgba1, rgb2);
                     let result = to_whole_rgb(blended.0, blended.1, blended.2, blended.3);
                     blended_color = unwrap_color(result);
-                },
+                }
                 Err(_) => {
-                    return Err(PyTypeError::new_err("The tuple must contain color types only"));
+                    return Err(PyTypeError::new_err(
+                        "The tuple must contain color types only",
+                    ));
                 }
             }
         }
-        Ok(Color::new(blended_color.0, blended_color.0, blended_color.2, blended_color.3))
+        Ok(Color::new(
+            blended_color.0,
+            blended_color.0,
+            blended_color.2,
+            blended_color.3,
+        ))
     }
 
     #[pyo3(signature = (other, include_transparency=false))]
@@ -474,7 +479,7 @@ impl Color {
         let hue_two: i16 = ((results.0 as i16) - 120).rem_euclid(360);
         [
             Color::from_hsl(hue_one, results.1, results.2, results.3).unwrap(),
-            Color::from_hsl(hue_two, results.1, results.2, results.3).unwrap()
+            Color::from_hsl(hue_two, results.1, results.2, results.3).unwrap(),
         ]
     }
 
@@ -482,11 +487,15 @@ impl Color {
         if temperature == BigInt::ZERO {
             return;
         }
-        let adjusted_temp = wrap_around_bigint(if temperature > BigInt::new(Sign::Plus, vec![255]) {
-            BigInt::new(Sign::Plus, vec![255])
-        } else if temperature < BigInt::new(Sign::Minus, vec![255]) {
-            BigInt::new(Sign::Minus, vec![255])
-        } else {temperature}).1 as u16;
+        let adjusted_temp =
+            wrap_around_bigint(if temperature > BigInt::new(Sign::Plus, vec![255]) {
+                BigInt::new(Sign::Plus, vec![255])
+            } else if temperature < BigInt::new(Sign::Minus, vec![255]) {
+                BigInt::new(Sign::Minus, vec![255])
+            } else {
+                temperature
+            })
+            .1 as u16;
 
         self.r = ((self.r as u16) + adjusted_temp).clamp(0, 255) as u8;
         self.b = ((self.b as u16) - adjusted_temp).clamp(0, 255) as u8;
@@ -497,9 +506,15 @@ impl Color {
             return;
         }
         let new_factor = factor + 1.0;
-        self.r = (127.5 + ((self.r as f32) - 127.5) * new_factor).clamp(0.0, 255.0).floor() as u8;
-        self.g = (127.5 + ((self.g as f32) - 127.5) * new_factor).clamp(0.0, 255.0).floor() as u8;
-        self.b = (127.5 + ((self.b as f32) - 127.5) * new_factor).clamp(0.0, 255.0).floor() as u8;
+        self.r = (127.5 + ((self.r as f32) - 127.5) * new_factor)
+            .clamp(0.0, 255.0)
+            .floor() as u8;
+        self.g = (127.5 + ((self.g as f32) - 127.5) * new_factor)
+            .clamp(0.0, 255.0)
+            .floor() as u8;
+        self.b = (127.5 + ((self.b as f32) - 127.5) * new_factor)
+            .clamp(0.0, 255.0)
+            .floor() as u8;
     }
 
     pub fn brightness(&self, factor: f32) -> Color {
@@ -630,7 +645,12 @@ impl Color {
     }
 
     pub fn copy(&self) -> Color {
-        Color {r: self.r, g: self.g, b: self.b, a: self.a}
+        Color {
+            r: self.r,
+            g: self.g,
+            b: self.b,
+            a: self.a,
+        }
     }
 
     #[pyo3(signature = (include_transparency=false))]
@@ -673,6 +693,10 @@ impl Color {
         let rgb: (f32, f32, f32) = color_to_decimal_rgb(*self);
         let k: f32 = 1.0 - rgb.0.max(rgb.1).max(rgb.2);
         let k_invert: f32 = 1.0 - k;
+
+        if k_invert == 0.0 {
+            return (0.0, 0.0, 0.0, 1.0, (self.a as f32) / 255.0);
+        }
         let c: f32 = (k_invert - rgb.0) / k_invert;
         let m: f32 = (k_invert - rgb.1) / k_invert;
         let y: f32 = (k_invert - rgb.2) / k_invert;
@@ -903,9 +927,8 @@ impl Color {
             adjusted_places
         };
         for (index, entry) in arr_clone.iter().enumerate() {
-            let calc_index: usize = wrap_around_bigint(
-                (&adjusted_places + (BigInt::from(index))) % &four,
-            ).1 as usize;
+            let calc_index: usize =
+                wrap_around_bigint((&adjusted_places + (BigInt::from(index))) % &four).1 as usize;
             arr[calc_index] = *entry
         }
         Color {
@@ -928,5 +951,7 @@ impl Color {
         self.copy()
     }
 
-    pub fn __sizeof__(&self) -> usize { 32 }
+    pub fn __sizeof__(&self) -> usize {
+        32
+    }
 }

@@ -125,32 +125,32 @@ pub const LIGHT_PURPLE: color::Color = color::Color {
     r: 203,
     g: 195,
     b: 227,
-    a: 255
+    a: 255,
 };
 
 pub const LIGHT_LIME: color::Color = color::Color {
     r: 174,
     g: 253,
     b: 108,
-    a: 255
+    a: 255,
 };
 pub const LIGHT_ORANGE: color::Color = color::Color {
     r: 255,
     g: 213,
     b: 128,
-    a: 255
+    a: 255,
 };
 pub const LIGHT_TEAL: color::Color = color::Color {
     r: 144,
     g: 228,
     b: 193,
-    a: 255
+    a: 255,
 };
 pub const LIGHT_PINK: color::Color = color::Color {
     r: 255,
     g: 182,
     b: 193,
-    a: 255
+    a: 255,
 };
 
 pub const DARK_RED: color::Color = color::Color {
