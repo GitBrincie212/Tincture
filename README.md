@@ -1,7 +1,12 @@
 <h1 style="text-align: center;">Tincture Python Color Library</h1>
 
-### DISCLAIMER: As of now this small module is in-beta and it isn't ready to be published in PyPi For use 
+![tincture](./assets/tincture_2560x1280.png)
+
+### DISCLAIMER
+As of now the library is not ready to be used for production. It is currently being developed and tested, only once it
+gets published in PyPi it will be ready for production-use
 ---
+
 Tincture is a relatively small library that provides a flexible color class allowing for all sorts of modifications.
 These include color interpolation, temperature adjustment, contrasting, getting luminance of a color, adjusting the
 brightness of a color... etc. It also has a wide range of color space conversations either converting from a color space
