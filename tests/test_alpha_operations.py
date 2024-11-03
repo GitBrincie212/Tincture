@@ -201,7 +201,7 @@ def test_color_equality(color1, color2, expected):
     (tincture.GREEN, tincture.PURPLE, 0.6, tincture.Color(75, 102, 153)),
 ])
 def test_color_mlerp(color1, color2, t, expected):
-    result = tincture.Color.mlerp(color1,color2, t)
+    result = tincture.Color.mlerp(color1, color2, t)
     color_cloned = color1.copy()
     color_cloned.mlerp_inplace(color2, t)
     color_cloned2 = color2.copy()
@@ -220,7 +220,7 @@ def test_color_mlerp(color1, color2, t, expected):
     (tincture.GREEN, tincture.PURPLE, 0.6, tincture.Color(75, 102, 153)),
 ])
 def test_color_clerp(color1, color2, t, expected):
-    result = tincture.Color.clerp(color1,color2, t)
+    result = tincture.Color.clerp(color1, color2, t)
     color_cloned = color1.copy()
     color_cloned.clerp_inplace(color2, t)
     color_cloned2 = color2.copy()
