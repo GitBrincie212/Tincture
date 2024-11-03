@@ -9,6 +9,7 @@ test:
 prod_test:
 	clear
 	cargo clippy
+	cargo fmt
 	tox -p
 	rm -r ./.tox
 
