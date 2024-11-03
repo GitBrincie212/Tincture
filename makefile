@@ -8,6 +8,7 @@ test:
 
 prod_test:
 	clear
+	cargo clippy
 	tox -p
 	rm -r ./.tox
 
