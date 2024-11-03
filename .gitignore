@@ -31,3 +31,4 @@ venv/**
 .tox/**
 .coverage
 .idea/**
+Main.py
