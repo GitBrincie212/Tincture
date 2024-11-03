@@ -27,6 +27,7 @@ in terms of flexibility, ease of use and performance
 All the documentation in tincture is written in docstrings. Here are some examples of using tincture
 
 _Basic Usage_
+
 ```python
 from tincture import Color
 
@@ -37,10 +38,10 @@ if __name__ == "__main__":
     inverse_color = color.inverse(False)
     shifted_color = color << 2
     grayscaled_color = color.grayscale()
-    white = color.from_hex("#ffffff") # or just color.from_hex("ffffff")
+    white = color.from_hex("#ffffff")  # or just color.from_hex("ffffff")
     max_color = white.max(Color.BLACK)
     randomised_color = color.WHITE.randomise(
-        start=[0, 20, 40, 60], 
+        start=[0, 20, 40, 60],
         end=[40, 30, 50, 80]
     )
     tensored_color = color.DARK_RED.tensor(color.DARK_BLUE)
@@ -50,6 +51,7 @@ if __name__ == "__main__":
 ```
 
 _Color Transitions Via Lerping_
+
 ```python
 from tincture import Color
 
@@ -64,6 +66,7 @@ if __name__ == "__main__":
 ```
 
 _Color Conversion_
+
 ```python
 from tincture import Color
 
@@ -83,6 +86,7 @@ if __name__ == "__main__":
 ```
 
 _Color Data_
+
 ```python
 from tincture import Color
 
