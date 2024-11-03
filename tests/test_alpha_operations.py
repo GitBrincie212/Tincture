@@ -227,5 +227,4 @@ def test_color_clerp(color1, color2, t, expected):
     color_cloned2.clerp_inplace(color1, 1.0 - t)
     assert result.approx_equal(color_cloned, 1)
     assert color_cloned2.approx_equal(tincture.Color.clerp(color2, color1, 1.0 - t), 1)
-    print(expected, result)
     assert result.approx_equal(expected, 1)
