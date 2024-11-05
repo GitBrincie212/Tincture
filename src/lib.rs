@@ -6,7 +6,6 @@ mod color;
 use pyo3::prelude::*;
 
 #[pymodule]
-#[pyo3(name="tincture")]
 fn tincture(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<color::Color>();
     m.add_class::<color::blending::BlendingMode>();
