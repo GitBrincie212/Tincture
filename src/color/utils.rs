@@ -1,9 +1,11 @@
 use crate::color::Color;
 use num_bigint::{BigInt, Sign};
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyIndexError, PyValueError};
 use pyo3::PyResult;
 use std::f32::consts::PI;
 use std::ops::Range;
+use rand::prelude::ThreadRng;
+use rand::Rng;
 
 pub(crate) fn create_bigint_from_u8(val: u8) -> BigInt {
     BigInt::new(Sign::Plus, vec![val as u32])
@@ -177,5 +179,27 @@ pub(crate) fn color_sub_scalar(value: &Color, other: BigInt, include_transparenc
         } else {
             value.a
         },
+    }
+}
+
+pub(crate) fn randomise_component(
+    value: u8, start: Option<u8>, end: Option<u8>, rng: &mut ThreadRng, name: &str
+) -> PyResult<u8> {
+    match (start, end) {
+        (Some(val1), Some(val2)) => {
+            if val1 >= val2 {
+                return Err(PyIndexError::new_err(format!(
+                    "Starting & Ending Bounds Are Out Of Range For {}",
+                    name
+                )));
+            }
+            Ok(rng.gen_range(val1..val2))
+        }
+        (None, None) => { Ok(value) }
+        _ => {
+            Err(PyValueError::new_err(
+                "Cannot have None & a integer fields on start & end at the same time",
+            ))
+        }
     }
 }

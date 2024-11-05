@@ -4,17 +4,18 @@ use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError, PyZeroDivisionEr
 use pyo3::prelude::PyTupleMethods;
 use pyo3::types::{PyAnyMethods, PyList, PyTuple};
 use pyo3::{pyclass, pymethods, Bound, FromPyObject, PyResult, Python};
-use rand::Rng;
 use std::collections::hash_map::DefaultHasher;
 use std::f32;
 use std::f32::consts::PI;
 use std::hash::{Hash, Hasher};
-use std::iter::zip;
+use rand::rngs::ThreadRng;
 
 pub mod blending;
 pub mod consts;
 mod utils;
 
+
+#[repr(C)]
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 #[pyclass]
 pub struct Color {
@@ -52,11 +53,12 @@ pub enum ColorOrFloat {
     Color(Color),
 }
 
+
 #[pymethods]
 impl Color {
     #[new]
     #[pyo3(signature = (r, g, b, a=255))]
-    fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+        fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
         Color { r, g, b, a }
     }
 
@@ -475,7 +477,7 @@ impl Color {
 
     pub fn triadic_colors(&self, python: Python<'_>) -> [Color; 2] {
         let results: (u16, f32, f32, f32) = self.to_hsl(python);
-        let hue_one: i16 = ((results.0 + 120).rem_euclid(360)) as i16;
+        let hue_one: i16 = (results.0 + 120).rem_euclid(360) as i16;
         let hue_two: i16 = ((results.0 as i16) - 120).rem_euclid(360);
         [
             Color::from_hsl(hue_one, results.1, results.2, results.3).unwrap(),
@@ -560,33 +562,12 @@ impl Color {
         start: [Option<u8>; 4],
         end: [Option<u8>; 4],
     ) -> PyResult<Color> {
-        let mut randomized_values: [u8; 4] = [0, 0, 0, 0];
-        let rgba_list: [u8; 4] = [self.r, self.g, self.b, self.a];
-        let iter = zip(start.iter(), end.iter()).enumerate();
-        for (index, (i, j)) in iter {
-            match (i, j) {
-                (Some(val1), Some(val2)) => {
-                    if i >= j {
-                        return Err(PyIndexError::new_err(format!(
-                            "Starting & Ending Bounds Are Out Of Range For Index {}",
-                            index
-                        )));
-                    }
-                    randomized_values[index] = rand::thread_rng().gen_range(*val1..*val2);
-                }
-                (None, None) => randomized_values[index] = rgba_list[index],
-                _ => {
-                    return Err(PyValueError::new_err(
-                        "Cannot have None & a integer fields on start & end at the same time",
-                    ));
-                }
-            }
-        }
+        let mut rng: ThreadRng = rand::thread_rng();
         Ok(Color {
-            r: randomized_values[0],
-            g: randomized_values[1],
-            b: randomized_values[2],
-            a: randomized_values[3],
+            r: randomise_component(self.r, start[0], end[0], &mut rng, "Red")?,
+            g: randomise_component(self.g, start[1], end[1], &mut rng, "Green")?,
+            b: randomise_component(self.b, start[2], end[2], &mut rng, "Blue")?,
+            a: randomise_component(self.r, start[3], end[3], &mut rng, "Red")?
         })
     }
 
