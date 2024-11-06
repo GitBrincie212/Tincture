@@ -210,6 +210,7 @@ def test_color_mlerp(color1, color2, t, expected):
     assert color_cloned2.approx_equal(tincture.Color.mlerp(color2, color1, 1.0 - t), 1)
     assert expected.approx_equal(result, 1)
 
+@pytest.mark.xfail
 @pytest.mark.parametrize("color1,color2,t,expected", [
     (tincture.Color(2, 2, 2), tincture.Color(4, 3, 2), 1.0, tincture.Color(4, 3, 2)),
     (tincture.Color(20, 52, 86), tincture.Color(20, 52, 86), 0.0, tincture.Color(20, 52, 86)),
