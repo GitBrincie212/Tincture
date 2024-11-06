@@ -14,9 +14,9 @@ num-bigint = "*"
 rand = {version = "0.8"}
 
 [profile.release]
-opt-level = 3             
-codegen-units = 1         
-lto = "fat"               
-debug = false             
-panic = "abort"           
+opt-level = 3
+codegen-units = 1
+lto = "fat"
+debug = false
+panic = "abort"
 incremental = false
