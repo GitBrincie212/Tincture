@@ -73,7 +73,7 @@ impl Color {
         find_invalid_percentage_range(b, "Blue")?;
         find_invalid_percentage_range(g, "Green")?;
         find_invalid_percentage_range(a, "Alpha")?;
-        Ok(to_whole_rgb(r, g, b, a))
+        Ok(to_unit_rgb(r, g, b, a))
     }
 
     #[staticmethod]
@@ -126,7 +126,7 @@ impl Color {
             12.92 * b
         };
 
-        Ok(to_whole_rgb(r, g, b, transparency))
+        Ok(to_unit_rgb(r, g, b, transparency))
     }
 
     #[staticmethod]
@@ -161,7 +161,7 @@ impl Color {
         let r: f32 = [v, b, a, a, c, v][index];
         let g: f32 = [c, v, v, b, a, a][index];
         let b: f32 = [a, a, c, v, v, b][index];
-        Ok(to_whole_rgb(r, g, b, transparency))
+        Ok(to_unit_rgb(r, g, b, transparency))
     }
 
     #[staticmethod]
@@ -182,7 +182,7 @@ impl Color {
             240..300 => (x, 0.0, c),
             _ => (c, 0.0, x),
         };
-        Ok(to_whole_rgb(r + m, g + m, b + m, transparency))
+        Ok(to_unit_rgb(r + m, g + m, b + m, transparency))
     }
 
     #[staticmethod]
@@ -232,12 +232,8 @@ impl Color {
         let r: f32 = (4.076_741_7 * l_cubed) - (3.307_711_6 * a_cubed) + (0.230_969_94 * b_cubed);
         let g: f32 = (-1.268_438 * l_cubed) + (2.609_757_4 * a_cubed) - (0.341_319_38 * b_cubed);
         let b: f32 = (-0.0041960863 * l_cubed) - (0.703_418_6 * a_cubed) + (1.707_614_7 * b_cubed);
-        Color {
-            r: r.floor() as u8,
-            g: g.floor() as u8,
-            b: b.floor() as u8,
-            a: (transparency * 255.0).floor() as u8,
-        }
+
+        to_unit_rgb(r, g, b, transparency)
     }
 
     #[staticmethod]
@@ -311,7 +307,7 @@ impl Color {
                     );
                     let rgb2 = color_to_decimal_rgb(color);
                     let blended = blending::compute_blend(&blend_mode, rgba1, rgb2);
-                    let result = to_whole_rgb(blended.0, blended.1, blended.2, blended.3);
+                    let result = to_unit_rgb(blended.0, blended.1, blended.2, blended.3);
                     blended_color = unwrap_color(result);
                 }
                 Err(_) => {
@@ -567,7 +563,7 @@ impl Color {
             r: randomise_component(self.r, start[0], end[0], &mut rng, "Red")?,
             g: randomise_component(self.g, start[1], end[1], &mut rng, "Green")?,
             b: randomise_component(self.b, start[2], end[2], &mut rng, "Blue")?,
-            a: randomise_component(self.r, start[3], end[3], &mut rng, "Red")?
+            a: randomise_component(self.a, start[3], end[3], &mut rng, "Transparency")?
         })
     }
 

@@ -44,15 +44,13 @@ pub(crate) fn color_to_decimal_rgb(color: Color) -> (f32, f32, f32) {
 
 pub(crate) fn color_to_oklab(color: Color) -> (f32, f32, f32) {
     let rgba = color_to_decimal_rgb(color);
-    let l: f32 = (0.412_221_46 * &rgba.0) + (0.536_332_55 * &rgba.1) + (0.051_445_995 * &rgba.2);
-
+    let l: f32 = (0.4122_214_708 * &rgba.0) + (0.536_332_536 * &rgba.1) + (0.051_445_995 * &rgba.2);
     let a: f32 = (0.211_903_5 * &rgba.0) + (0.680_699_5 * &rgba.1) + (0.107_396_96 * &rgba.2);
-
     let b: f32 = (0.088_302_46 * rgba.0) + (0.281_718_85 * rgba.1) + (0.629_978_7 * rgba.2);
 
-    let l_sqrt_cube: f32 = l.powf(3.333333);
-    let a_sqrt_cube: f32 = a.powf(3.333333);
-    let b_sqrt_cube: f32 = b.powf(3.333333);
+    let l_sqrt_cube: f32 = l.cbrt();
+    let a_sqrt_cube: f32 = a.cbrt();
+    let b_sqrt_cube: f32 = b.cbrt();
 
     (
         (0.210_454_26 * l_sqrt_cube) + (0.793_617_8 * a_sqrt_cube) - (0.004_072_047 * b_sqrt_cube),
@@ -107,7 +105,7 @@ pub(crate) fn calculate_hs(color: Color) -> (u16, f32, f32, f32) {
     (h.round() as u16, s, c_max, c_min)
 }
 
-pub(crate) fn to_whole_rgb(r: f32, g: f32, b: f32, a: f32) -> Color {
+pub(crate) fn to_unit_rgb(r: f32, g: f32, b: f32, a: f32) -> Color {
     Color {
         r: (r * 255.0).floor() as u8,
         g: (g * 255.0).floor() as u8,
