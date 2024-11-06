@@ -182,7 +182,10 @@ class Color:
         Given a starting color, an ending color and a **t** value which is a percentage value. It creates
         the color half-way. If the t value is out of range, then it throws an error
 
-        Important Note: This differs from [mlerp] which interpolates the 3 RGB channels.
+        NOTE: As of now, there are major miscalculations that as of the time writing.
+        It should NOT be used in production use until otherwise fixed. We want to fix this but it will take time
+
+        **Important Note:** This differs from [mlerp] which interpolates the 3 RGB channels.
         The operation uses the LCH color space which can be.a tiny bit heavier on the computer
 
         Note: There is a function that does this in place as opposed to generating a new color value.
@@ -211,12 +214,15 @@ class Color:
         modify the RGB channels. It needs an ending color and a **t** value, which is a percentage value. It creates
         the color half-way. If the t value is out of range, then it throws an error
 
-        Note: There is a function that generates a new color value as opposed to perform in place.
-        The function is called [clerp]
+        NOTE: As of now, there are major miscalculations that as of the time writing.
+        It should NOT be used in production use until otherwise fixed. We want to fix this but it will take time
 
         **Important Note:** This differs from [mlerp] which interpolates the 3 RGB channels.
         The operation uses the LCH color space which might involve a tiny bit of more computation to lerp
         as opposed to [mlerp] but produces a more pleasing result at the end
+
+        Note: There is a function that generates a new color value as opposed to perform in place.
+        The function is called [clerp]
 
         :param end: The ending color that will be used
         :param t: A "t" value that is a percentage and is used to produce the intermediate color
