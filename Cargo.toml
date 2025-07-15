@@ -15,8 +15,6 @@ ahash = "*"
 
 [profile.release]
 opt-level = 3
+lto = true
 codegen-units = 1
-lto = "fat"
 debug = false
-panic = "abort"
-incremental = false
