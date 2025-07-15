@@ -12,16 +12,9 @@ These include color interpolation, temperature adjustment, contrasting, getting 
 brightness of a color... etc. It also has a wide range of color space conversations either converting from a color space
 to a color object or vice versa. Tincture is written in rust to ensure performance over color management
 
-Tincture is part of a family of modules that make up renvy(an upcoming animation library)
-- **Sharp** A Math (General & Linear Algebra) and Geometry library focusing on fast accurate math computation
-- **Oxidised** A rendering engine built on top of glium providing a module for making graphics easier
-- **Tincture** A general purpose color library providing flexible ways to manipulate colors
-- **Blueprint** Parses a file into a 3D model that can be then fine-tuned
-- **Scatter** A lighting engine for calculating well light duh…
-- **Shriek** A sound-related engine for playing well sound effects while also manipulating them
-
-Then finally we got renvy, which combines all the modules into one while focusing on animation
-in terms of flexibility, ease of use and performance
+Tincture is mostly meant to be used to provide a fully ready to use color class without having to write the code yourself
+in supporting a bunch of operations, methods, conversations... etc. This library will be used throughout some of my other
+python libraries to alleviate pain points
 
 ---
 All the documentation in tincture is written in docstrings. Here are some examples of using tincture
