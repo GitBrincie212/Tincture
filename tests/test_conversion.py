@@ -94,3 +94,36 @@ def test_color_hsl(color, expected):
     result = color.to_hsl()
     assert approx_equal_field(result, expected, 0.05)
 
+@pytest.mark.parametrize("color,expected", [
+    (tincture.RED, "#ff0000ff"),
+    (tincture.GREEN, "#00ff00ff"),
+    (tincture.MAGENTA, "#ff00ffff"),
+    (tincture.BLUE, "#0000ffff"),
+    (tincture.Color(10, 20, 30, 40), "#0a141e28"),
+    (tincture.BLACK, "#000000ff"),
+    (tincture.Color(92, 102, 31, 65), "#5c661f41"),
+    (tincture.WHITE, "#ffffffff"),
+    (tincture.Color(115, 115, 115), "#737373ff"),
+    (tincture.Color(44, 33, 22, 11), "#2c21160b"),
+    (tincture.Color(92, 123, 34, 239), "#5c7b22ef")
+])
+def test_color_hex(color, expected):
+    result = color.to_hex(True)
+    assert result == expected
+
+@pytest.mark.parametrize("color,expected", [
+    (tincture.RED, (0.628, 0.225, 0.126, 1.0)),
+    (tincture.GREEN, (0.866, -0.234, 0.179, 1.0)),
+    (tincture.MAGENTA, (0.702, 0.275, -0.169, 1.0)),
+    (tincture.BLUE, (0.452, -0.032, -0.312, 1.0)),
+    (tincture.Color(10, 20, 30, 40), (0.187, -0.009, -0.024, 0.157)),
+    (tincture.BLACK, (0.0, 0.0, 0.0, 1.0)),
+    (tincture.Color(92, 102, 31, 65), (0.487, -0.043, 0.084, 0.255)),
+    (tincture.WHITE, (1.000, 0.000, 0.000, 1.0)),
+    (tincture.Color(115, 115, 115), (0.556, 0.000, 0.000, 1.0)),
+    (tincture.Color(44, 33, 22, 11), (0.257, 0.010, 0.024, 0.043)),
+    (tincture.Color(92, 123, 34, 239), (0.541, -0.072, 0.097, 0.937))
+])
+def test_color_oklab(color, expected):
+    result = color.to_oklab()
+    assert approx_equal_field(result, expected, 0.05)
