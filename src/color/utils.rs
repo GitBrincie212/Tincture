@@ -121,7 +121,7 @@ macro_rules! implement_add_sub_operations {
                 g: (($self.g as isize) $sign (c.g as isize)).clamp(0, 255) as u8,
                 b: (($self.b as isize) $sign (c.b as isize)).clamp(0, 255) as u8,
                 a: if $include_transparency {
-                    (($self.r as isize) + (c.a as isize)).clamp(0, 255) as u8
+                    (($self.r as isize) $sign (c.a as isize)).clamp(0, 255) as u8
                 } else {$self.a},
             },
             ColorOrScalar::Integer(int) => Color {
