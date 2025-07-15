@@ -114,26 +114,89 @@ macro_rules! find_invalid_range {
 
 #[macro_export]
 macro_rules! implement_add_sub_operations {
-    ($self: expr, $other: expr, $include_transparency: expr, $sign: tt) => {
-        match $other {
-            ColorOrScalar::Color(c) => Color {
-                r: (($self.r as isize) $sign (c.r as isize)).clamp(0, 255) as u8,
-                g: (($self.g as isize) $sign (c.g as isize)).clamp(0, 255) as u8,
-                b: (($self.b as isize) $sign (c.b as isize)).clamp(0, 255) as u8,
-                a: if $include_transparency {
-                    (($self.r as isize) $sign (c.a as isize)).clamp(0, 255) as u8
-                } else {$self.a},
-            },
-            ColorOrScalar::Integer(int) => Color {
-                r: (($self.r as isize) $sign int).clamp(0, 255) as u8,
-                g: (($self.g as isize) $sign int).clamp(0, 255) as u8,
-                b: (($self.b as isize) $sign int).clamp(0, 255) as u8,
-                a: if $include_transparency {
-                    (($self.r as isize) $sign int).clamp(0, 255) as u8
-                } else {$self.a},
-            },
+    ($self: expr, $py: expr, $other: expr, $include_transparency: expr, $sign: tt) => {{
+        if let Ok(scalar) = $other.extract::<isize>($py) {
+            let a: usizex4 = usizex4::from_array([$self.r as usize, $self.g as usize, $self.b as usize, $self.a as usize]);
+            let b: usizex4 = usizex4::from_array([scalar as usize, scalar as usize, scalar as usize, scalar as usize]);
+            let result = (a $sign b).simd_clamp(Simd::from_array([0, 0, 0, 0]), Simd::from_array([255, 255, 255, 255]));
+            return Ok(
+                Color {
+                    r: result[0] as u8,
+                    g: result[1] as u8,
+                    b: result[2] as u8,
+                    a: result[3] as u8
+                }
+            );
         }
-    };
+
+
+        let col = $other.extract::<Color>($py)?;
+        let a: usizex4 = usizex4::from_array([$self.r as usize, $self.g as usize, $self.b as usize, $self.a as usize]);
+        let b: usizex4 = usizex4::from_array([col.r as usize, col.g as usize, col.b as usize, if $include_transparency {col.a as usize} else {0}]);
+        let result = (a $sign b).simd_clamp(Simd::from_array([0, 0, 0, 0]), Simd::from_array([255, 255, 255, 255]));
+
+        Ok(Color {
+            r: result[0] as u8,
+            g: result[1] as u8,
+            b: result[2] as u8,
+            a: result[3] as u8
+        })
+    }};
+}
+
+#[macro_export]
+macro_rules! implement_tensor_operation {
+    ($self: expr, $other: expr, $include_transparency: expr) => {{
+        let a: u16x4 = u16x4::from_array([$self.r as u16, $self.g as u16, $self.b as u16, $self.a as u16]);
+        let b: u16x4 = u16x4::from_array([$other.r as u16, $other.g as u16, $other.b as u16, if $include_transparency {$other.a as u16} else {0}]);
+        let result = (a * b).simd_clamp(Simd::from_array([0, 0, 0, 0]), Simd::from_array([255, 255, 255, 255]));
+
+        Color {
+            r: result[0] as u8,
+            g: result[1] as u8,
+            b: result[2] as u8,
+            a: result[3] as u8
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! implement_multiply_operation {
+    ($self: expr, $other: expr, $include_transparency: expr) => {{
+        let a: f32x4 = f32x4::from_array([$self.r as f32, $self.g as f32, $self.b as f32, $self.a as f32]);
+        let b: f32x4 = f32x4::from_array([$other, $other, $other, if $include_transparency {$other} else {1.0}]);
+        let result = (a * b)
+            .simd_clamp(Simd::from_array([0.0, 0.0, 0.0, 0.0]), Simd::from_array([255.0, 255.0, 255.0, 255.0]))
+            .round();
+
+        Color {
+            r: result[0] as u8,
+            g: result[1] as u8,
+            b: result[2] as u8,
+            a: result[3] as u8
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! implement_div_operation {
+    ($self: expr, $scalar: expr, $include_transparency: expr) => {{
+        if $scalar == 0.0 {
+            return Err(PyZeroDivisionError::new_err("Scalar division by zero"));
+        }
+        let a: f32x4 = f32x4::from_array([$self.r as f32, $self.g as f32, $self.b as f32, $self.a as f32]);
+        let b: f32x4 = f32x4::from_array([$scalar, $scalar, $scalar, if $include_transparency {$scalar} else {1.0}]);
+        let result = (a / b)
+            .simd_clamp(Simd::from_array([0.0, 0.0, 0.0, 0.0]), Simd::from_array([255.0, 255.0, 255.0, 255.0]))
+            .round();
+
+        Ok(Color {
+            r: result[0] as u8,
+            g: result[1] as u8,
+            b: result[2] as u8,
+            a: result[3] as u8
+        })
+    }};
 }
 
 pub(crate) fn randomise_component(

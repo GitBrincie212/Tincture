@@ -1,3 +1,4 @@
+#![feature(portable_simd)]
 #![allow(unused_must_use)]
 #![allow(clippy::wrong_self_convention)]
 

@@ -8,7 +8,11 @@ use std::hash::{Hash, Hasher};
 use std::sync::{LazyLock, Mutex};
 use rand::prelude::SmallRng;
 use rand::SeedableRng;
-use crate::{find_invalid_range, implement_add_sub_operations};
+use std::simd::{usizex4, u16x4, Simd, f32x4};
+use std::simd::num::{SimdFloat};
+use std::simd::{StdFloat};
+use std::simd::cmp::SimdOrd;
+use crate::{find_invalid_range, implement_add_sub_operations, implement_div_operation, implement_multiply_operation, implement_tensor_operation};
 
 pub mod blending;
 pub mod consts;
@@ -17,7 +21,7 @@ mod utils;
 static RNG: LazyLock<Mutex<SmallRng>> = LazyLock::new(|| Mutex::new(SmallRng::from_os_rng()));
 
 
-#[repr(C)]
+#[repr(C, align(32))]
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 #[pyclass]
 pub struct Color {
@@ -315,71 +319,37 @@ impl Color {
     }
 
     #[pyo3(signature = (other, include_transparency=false))]
-    pub fn add(&mut self, other: ColorOrScalar, include_transparency: bool) -> Color {
-        implement_add_sub_operations!(self, other, include_transparency, +)
+    pub fn add(&self, py: Python<'_>, other: Py<PyAny>, include_transparency: bool) -> PyResult<Color> {
+        implement_add_sub_operations!(self, py, other, include_transparency, +)
     }
 
     #[pyo3(signature = (other, include_transparency=false))]
-    pub fn sub(&mut self, other: ColorOrScalar, include_transparency: bool) -> Color {
-        implement_add_sub_operations!(self, other, include_transparency, -)
+    pub fn sub(&self, py: Python<'_>, other: Py<PyAny>, include_transparency: bool) -> PyResult<Color> {
+        implement_add_sub_operations!(self, py, other, include_transparency, -)
     }
 
     #[pyo3(signature = (scalar, include_transparency=false))]
-    pub fn mul(&mut self, scalar: f32, include_transparency: bool) -> Color {
-        if scalar <= 0.0 {
-            return Color::new(0, 0, 0, if include_transparency { 0 } else { self.a });
-        }
-        Color {
-            r: ((self.r as f32) * scalar).clamp(0.0, 255.0).floor() as u8,
-            g: ((self.g as f32) * scalar).clamp(0.0, 255.0).floor() as u8,
-            b: ((self.b as f32) * scalar).clamp(0.0, 255.0).floor() as u8,
-            a: if include_transparency {
-                ((self.a as f32) * scalar).clamp(0.0, 255.0).floor() as u8
-            } else {
-                self.a
-            },
-        }
+    pub fn mul(&self, scalar: f32, include_transparency: bool) -> Color {
+        implement_multiply_operation!(self, scalar, include_transparency)
     }
 
     #[pyo3(signature = (scalar, include_transparency=false))]
     pub fn div(
-        &mut self,
-        _python: Python,
+        &self,
         scalar: f32,
         include_transparency: bool,
     ) -> PyResult<Color> {
-        if scalar == 0.0 {
-            return Err(PyZeroDivisionError::new_err("Scalar division by zero"));
-        }
-        Ok(Color {
-            r: ((self.r as f32) / (scalar)).clamp(0.0, 255.0).floor() as u8,
-            g: ((self.g as f32) / (scalar)).clamp(0.0, 255.0).floor() as u8,
-            b: ((self.b as f32) / (scalar)).clamp(0.0, 255.0).floor() as u8,
-            a: if include_transparency {
-                ((self.a as f32) / (scalar)).clamp(0.0, 255.0).floor() as u8
-            } else {
-                self.a
-            },
-        })
+        implement_div_operation!(self, scalar, include_transparency)
     }
 
     #[pyo3(signature = (other, include_transparency=false))]
     pub fn tensor(&self, other: Color, include_transparency: bool) -> Color {
-        Color {
-            r: ((self.r as u16) * (other.r as u16)).clamp(0, 255) as u8,
-            g: ((self.g as u16) * (other.g as u16)).clamp(0, 255) as u8,
-            b: ((self.b as u16) * (other.b as u16)).clamp(0, 255) as u8,
-            a: if include_transparency {
-                ((self.a as u16) * (other.a as u16)).clamp(0, 255) as u8
-            } else {
-                self.a
-            },
-        }
+        implement_tensor_operation!(self, other, include_transparency)
     }
 
     #[pyo3(signature = (base, include_transparency=false))]
     pub fn base_sqrt(
-        &mut self,
+        &self,
         _python: Python,
         base: u8,
         include_transparency: bool,
@@ -722,35 +692,29 @@ impl Color {
         format!("Color({}, {}, {}, {})", self.r, self.g, self.b, self.a)
     }
 
-    pub fn __add__(&mut self, other: ColorOrScalar) -> Color {
-        self.add(other, true)
+    pub fn __add__(&self, py: Python<'_>, other: Py<PyAny>) -> PyResult<Color> {
+        implement_add_sub_operations!(self, py, other, true, +)
     }
 
-    pub fn __radd__(&mut self, other: ColorOrScalar) -> Color {
-        self.add(other, true)
+    pub fn __sub__(&self, py: Python<'_>, other: Py<PyAny>) -> PyResult<Color> {
+        implement_add_sub_operations!(self, py, other, true, -)
     }
 
-    pub fn __sub__(&mut self, other: ColorOrScalar) -> Color {
-        self.sub(other, true)
-    }
-
-    pub fn __rsub__(&mut self, other: ColorOrScalar) -> Color {
-        self.sub(other, true)
-    }
-
-    pub fn __mul__(&mut self, other: ColorOrFloat) -> Color {
-        match other {
-            ColorOrFloat::Color(c) => self.tensor(c, true),
-            ColorOrFloat::Float(f) => self.mul(f, true),
+    pub fn __mul__(&self, py: Python<'_>, other: Py<PyAny>) -> PyResult<Color> {
+        if let Ok(scalar) = other.extract::<f32>(py) {
+            return Ok(implement_multiply_operation!(self, scalar, true));
         }
+
+        let col = other.extract::<Color>(py)?;
+        Ok(implement_tensor_operation!(self, col, true))
     }
 
-    pub fn __truediv__(&mut self, python: Python, other: f32) -> PyResult<Color> {
-        self.div(python, other, true)
+    pub fn __truediv__(&self, other: f32) -> PyResult<Color> {
+        implement_div_operation!(self, other, true)
     }
 
-    pub fn __floordiv__(&mut self, python: Python, other: isize) -> PyResult<Color> {
-        self.div(python, other as f32, true)
+    pub fn __floordiv__(&self, other: isize) -> PyResult<Color> {
+        implement_div_operation!(self, other as f32, true)
     }
 
     pub fn __hash__(&self, _python: Python) -> u64 {
