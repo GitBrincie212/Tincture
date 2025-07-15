@@ -1,8 +1,7 @@
 use crate::color::utils::*;
 use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError, PyZeroDivisionError};
-use pyo3::prelude::PyTupleMethods;
+use pyo3::prelude::*;
 use pyo3::types::{PyAnyMethods, PyList, PyTuple};
-use pyo3::{pyclass, pymethods, Bound, FromPyObject, PyResult, Python};
 use std::f32;
 use std::f32::consts::PI;
 use std::hash::{Hash, Hasher};
