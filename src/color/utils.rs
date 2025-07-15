@@ -1,37 +1,15 @@
-use crate::color::Color;
-use num_bigint::{BigInt, Sign};
+use crate::color::{Color, RNG};
 use pyo3::exceptions::{PyIndexError, PyValueError};
 use pyo3::PyResult;
 use std::f32::consts::PI;
 use std::ops::Range;
-use rand::prelude::ThreadRng;
 use rand::Rng;
-
-pub(crate) fn create_bigint_from_u8(val: u8) -> BigInt {
-    BigInt::new(Sign::Plus, vec![val as u32])
-}
 
 pub(crate) fn interpret_to_hex(adjusted_str: &str, range: Range<usize>) -> Result<u8, String> {
     match u8::from_str_radix(&adjusted_str[range], 16) {
         Ok(r) => Ok(r),
         Err(_) => Err(String::from("")),
     }
-}
-
-pub(crate) fn wrap_around_bigint(value: BigInt) -> (Sign, u32) {
-    let sign_and_digits: (Sign, Vec<u32>) = value.to_u32_digits();
-    if sign_and_digits.0 == Sign::NoSign && sign_and_digits.1 == Vec::<u32>::new() {
-        return (Sign::NoSign, 0);
-    }
-    (sign_and_digits.0, sign_and_digits.1[0])
-}
-
-pub(crate) fn wrap_around_bigint_as_i16(value: BigInt) -> i16 {
-    let result = wrap_around_bigint(value);
-    if result.0 == Sign::Minus {
-        return -(result.1 as i16);
-    }
-    result.1 as i16
 }
 
 pub(crate) fn color_to_decimal_rgb(color: Color) -> (f32, f32, f32) {
@@ -118,70 +96,48 @@ pub(crate) fn unwrap_color(color: Color) -> (u8, u8, u8, u8) {
     (color.r, color.g, color.b, color.a)
 }
 
-pub(crate) fn find_invalid_percentage_range(val: f32, name: &str) -> PyResult<()> {
-    if !(0.0..=1.0).contains(&val) {
-        return Err(PyValueError::new_err(format!(
-            "{} percentage must be between 0.0 and 1.0",
-            name
-        )));
-    }
-    Ok(())
-}
+#[macro_export]
+macro_rules! find_invalid_range {
+    ($val: expr, $name: expr) => {
+        find_invalid_range!($val, concat!($name, " percentage"), 0.0, 1.0)
+    };
 
-pub(crate) fn color_add_color(value: &Color, other: &Color, include_transparency: bool) -> Color {
-    Color {
-        r: ((value.r as u16) + (other.r as u16)).min(255) as u8,
-        g: ((value.g as u16) + (other.g as u16)).min(255) as u8,
-        b: ((value.b as u16) + (other.b as u16)).min(255) as u8,
-        a: if include_transparency {
-            ((value.a as u16) + (other.a as u16)).min(255) as u8
-        } else {
-            value.a
-        },
+    ($val: expr, $name: expr, $min: expr, $max: expr) => {
+        if !($min..=$max).contains(&$val) {
+            return Err(PyValueError::new_err(format!(
+                "{} must be between {} and {}",
+                $name, $min, $max
+            )));
+        }
     }
 }
 
-pub(crate) fn color_add_scalar(value: &Color, other: BigInt, include_transparency: bool) -> Color {
-    Color {
-        r: (wrap_around_bigint(create_bigint_from_u8(value.r) + &other).1).min(255) as u8,
-        g: (wrap_around_bigint(create_bigint_from_u8(value.g) + &other).1).min(255) as u8,
-        b: (wrap_around_bigint(create_bigint_from_u8(value.b) + &other).1).min(255) as u8,
-        a: if include_transparency {
-            (wrap_around_bigint(create_bigint_from_u8(value.a) + &other).1).min(255) as u8
-        } else {
-            value.a
-        },
-    }
-}
-
-pub(crate) fn color_sub_color(value: &Color, other: &Color, include_transparency: bool) -> Color {
-    Color {
-        r: ((value.r as i16) - (other.r as i16)).max(0) as u8,
-        g: ((value.g as i16) - (other.g as i16)).max(0) as u8,
-        b: ((value.b as i16) - (other.b as i16)).max(0) as u8,
-        a: if include_transparency {
-            ((value.a as i16) - (other.a as i16)).max(0) as u8
-        } else {
-            value.a
-        },
-    }
-}
-
-pub(crate) fn color_sub_scalar(value: &Color, other: BigInt, include_transparency: bool) -> Color {
-    Color {
-        r: (wrap_around_bigint(create_bigint_from_u8(value.r) - &other).1).min(255) as u8,
-        g: (wrap_around_bigint(create_bigint_from_u8(value.g) - &other).1).min(255) as u8,
-        b: (wrap_around_bigint(create_bigint_from_u8(value.b) - &other).1).min(255) as u8,
-        a: if include_transparency {
-            (wrap_around_bigint(create_bigint_from_u8(value.a) - &other).1).min(255) as u8
-        } else {
-            value.a
-        },
-    }
+#[macro_export]
+macro_rules! implement_add_sub_operations {
+    ($self: expr, $other: expr, $include_transparency: expr, $sign: tt) => {
+        match $other {
+            ColorOrScalar::Color(c) => Color {
+                r: (($self.r as isize) $sign (c.r as isize)).clamp(0, 255) as u8,
+                g: (($self.g as isize) $sign (c.g as isize)).clamp(0, 255) as u8,
+                b: (($self.b as isize) $sign (c.b as isize)).clamp(0, 255) as u8,
+                a: if $include_transparency {
+                    (($self.r as isize) + (c.a as isize)).clamp(0, 255) as u8
+                } else {$self.a},
+            },
+            ColorOrScalar::Integer(int) => Color {
+                r: (($self.r as isize) $sign int).clamp(0, 255) as u8,
+                g: (($self.g as isize) $sign int).clamp(0, 255) as u8,
+                b: (($self.b as isize) $sign int).clamp(0, 255) as u8,
+                a: if $include_transparency {
+                    (($self.r as isize) $sign int).clamp(0, 255) as u8
+                } else {$self.a},
+            },
+        }
+    };
 }
 
 pub(crate) fn randomise_component(
-    value: u8, start: Option<u8>, end: Option<u8>, rng: &mut ThreadRng, name: &str
+    value: u8, start: Option<u8>, end: Option<u8>, name: &str
 ) -> PyResult<u8> {
     match (start, end) {
         (Some(val1), Some(val2)) => {
@@ -191,7 +147,7 @@ pub(crate) fn randomise_component(
                     name
                 )));
             }
-            Ok(rng.gen_range(val1..val2))
+            Ok(RNG.lock().unwrap().random_range(val1..=val2))
         }
         (None, None) => { Ok(value) }
         _ => {
