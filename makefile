@@ -7,7 +7,14 @@ build:
 prod:
 	clear
 	cargo build --profile release
+	rm -f ./tincture.so
 	mv target/release/libtincture.dylib ./tincture.so
+
+debug_prod:
+	clear
+	cargo build --profile debug-release
+	rm -f ./tincture.so
+	mv target/debug-release/libtincture.dylib ./tincture.so
 
 test:
 	clear
