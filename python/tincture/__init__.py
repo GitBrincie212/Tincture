@@ -1,4 +1,3 @@
-from tincture import Color
 from ._blending import *
 from ._color import *
 
