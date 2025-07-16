@@ -1,4 +1,3 @@
-use crate::color::*;
 use pyo3::pyclass;
 
 #[pyclass(eq, eq_int)]
@@ -26,31 +25,31 @@ pub enum BlendingMode {
     Average,
 }
 
-fn hardlight_and_overlay(
-    color1: (f32, f32, f32, f32),
-    color2: (f32, f32, f32),
-) -> (f32, f32, f32, f32) {
-    if color1.0 < 0.5 && color1.1 < 0.5 && color2.0 < 0.5 {
-        return (
-            2.0 * color1.0 * color2.0,
-            2.0 * color1.1 * color2.1,
-            2.0 * color1.2 * color2.2,
-            color1.3,
-        );
-    }
-    (
-        1.0 - (2.0 * (1.0 - color1.0) * (1.0 - color2.0)),
-        1.0 - (2.0 * (1.0 - color1.1) * (1.0 - color2.1)),
-        1.0 - (2.0 * (1.0 - color1.2) * (1.0 - color2.2)),
-        color1.3,
-    )
+macro_rules! hardlight_and_overlay {
+    ($color1: expr, $color2: expr) => {{
+        if $color1.0 < 0.5 && $color1.1 < 0.5 && $color2.0 < 0.5 {
+            (
+                2.0 * $color1.0 * $color2.0,
+                2.0 * $color1.1 * $color2.1,
+                2.0 * $color1.2 * $color2.2,
+                $color1.3,
+            )
+        } else {
+            (
+                1.0 - (2.0 * (1.0 - $color1.0) * (1.0 - $color2.0)),
+                1.0 - (2.0 * (1.0 - $color1.1) * (1.0 - $color2.1)),
+                1.0 - (2.0 * (1.0 - $color1.2) * (1.0 - $color2.2)),
+                $color1.3,
+            )
+        }
+    }};
 }
 
 pub(crate) fn compute_blend(
     blending_mode: &BlendingMode,
-    color1: (f32, f32, f32, f32),
-    color2: (f32, f32, f32),
-) -> (f32, f32, f32, f32) {
+    color1: (f64, f64, f64, f64),
+    color2: (f64, f64, f64, f64),
+) -> (f64, f64, f64, f64) {
     match blending_mode {
         BlendingMode::Darken => (
             color1.0.min(color2.0),
@@ -100,10 +99,10 @@ pub(crate) fn compute_blend(
             color2.2 / (1.0 - color1.2),
             color1.3,
         ),
-        BlendingMode::HardLight => hardlight_and_overlay(color1, color2),
-        BlendingMode::Overlay => hardlight_and_overlay(
+        BlendingMode::HardLight => hardlight_and_overlay!(color1, color2),
+        BlendingMode::Overlay => hardlight_and_overlay!(
             (color2.0, color2.1, color2.2, color1.3),
-            (color1.0, color1.1, color1.2),
+            (color1.0, color1.1, color1.2)
         ),
         BlendingMode::SoftLight => {
             if color1.0 < 0.5 && color1.1 < 0.5 && color2.0 < 0.5 {
