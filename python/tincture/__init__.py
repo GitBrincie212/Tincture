@@ -1,5 +1,4 @@
-from ._blending import *
-from ._color import *
+from ._color import Color
 
 WHITE: Color
 BLACK: Color
