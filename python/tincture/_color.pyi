@@ -28,8 +28,9 @@ class Color:
          Color(213, 85, 120)
          ```
 
-         It accepts **u8** parameters for the R, G, B. If you are looking for decimal values,
-         then there is a function for that, just called: [from_decimal_rgba]
+         It accepts integer params, which they have to be in the range of 0-255, otherwise the fail.
+         For the R, G, B. If you are looking for decimal values, then there is a function for that,
+         just called:  ``Color.from_decimal_rgba(...)``
 
         :param r: The Red Component Of The Color
         :param g: The Green Component Of The Color
@@ -54,7 +55,7 @@ class Color:
     def from_cmyk(c: float, y: float, m: float, k: float, transparency: bool) -> "Color":
         """
         Construct a new color based on provided CMYK values. Where it
-        is an acronym for **C**yan, Magenta, Yellow, and Key (Black).
+        is an acronym for **C**yan, **M**agenta, **Y**ellow, and **K**ey (Black).
         The values supplied should be in the range of 0.0 to 1.0 (inclusion on both)
         since they are percentage values. Otherwise, the code will return an error
 
@@ -248,27 +249,33 @@ class Color:
 
     def add(self, other: "Color", include_transparency: bool = False) -> "Color":
         """
-        Performs an addition operation between this color and the other color, then it returns
-        a new color value. The RGB values are maxed to 255, for subtraction it is recommended
-        to use the dedicated function called [Self::sub] since the RGB values cannot below 0.
-        If you want, you can opt in to include the alpha channel as well
+        Performs an addition operation between this color and the other color, modifying it **in-place** and returning this
+        modified color from the resulting addition. For subtraction, it is recommended to use the
+        dedicated function called ``Color.sub(...)``. If you want, you can opt in to include the alpha channel as well
+
+        For creating a new Color from the addition of these two colors, it is recommended to use ``Color(...) + Color(...)``
 
         :param other : The other color for the subtraction operation
-        :param include_transparency : Performs the operation in addition to the alpha channel when set to true;
+        :param include_transparency : Performs the addition operation to the alpha channel when set to true;
         By default, it is set to be false
+
+        :return: The modified self color (it does not create a new one but rather modifies it **in-place**)
         """
         ...
 
     def sub(self, other: "Color", include_transparency: bool = False) -> "Color":
         """
-        Performs a subtraction operation between this color and the other color, then it returns
-        a new color value. The RGB values are minimized to 0, for adding; it is recommended
-        to use the dedicated function called [Self::add] since the RGB values cannot below 0.
-        If you want, you can opt in to include the alpha channel as well
+        Performs a subtraction operation between this color and the other color, modifying it **in-place** and returning this
+        modified color from the resulting substraction. it is recommended to use the
+        dedicated function called ``Color.sub(...)``. If you want, you can opt in to include the alpha channel as well
+
+        For creating a new Color from the subtraction of these two colors, it is recommended to use ``Color(...) - Color(...)``
 
         :param other : The other color for the subtraction operation
-        :param include_transparency : Performs the operation in addition to the alpha channel when set to true;
+        :param include_transparency : Performs the subtraction operation to the alpha channel when set to true;
         By default, it is set to be false
+
+        :return: The modified self color (it does not create a new one but rather modifies it **in-place**)
         """
         ...
 
