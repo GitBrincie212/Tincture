@@ -1,13 +1,17 @@
-use crate::color::utils::*;
 use pyo3::exceptions::{PyIndexError, PyValueError, PyZeroDivisionError};
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyTuple};
 use std::f64::consts::PI;
 use std::hash::{Hash, Hasher};
+use std::ops::{Add, Div, Mul, Sub};
 use std::sync::{LazyLock, Mutex};
+use std::sync::atomic::{AtomicU32, Ordering};
 use rand::prelude::SmallRng;
 use rand::{RngCore, SeedableRng};
-use crate::{approx_equal_field, extract_rgb_channel, find_invalid_range, implement_color_to_color_operation, implement_color_to_scalar_operation, implement_color_to_unknown_operation, shift_impl, to_decimal_rgba, to_unit_rgb, unpack_rgba};
+use crate::{approx_equal_field, create_color, calc_hue_saturation, find_invalid_range};
+use crate::{extract_rgba_channels, extract_rgb_channel};
+use crate::{implement_color_to_color_operation, implement_color_to_scalar_operation, implement_color_to_unknown_operation};
+use crate::{shift_impl, to_decimal_rgba, to_lch, to_oklab, to_unit_rgba, unpack_rgba, to_hsv, clerp_impl, interpret_to_hex};
 
 pub mod blending;
 pub mod consts;
@@ -17,9 +21,15 @@ static RNG: LazyLock<Mutex<SmallRng>> = LazyLock::new(|| Mutex::new(SmallRng::fr
 
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-#[pyclass]
-pub struct Color(u32);
+#[pyclass(frozen)]
+pub struct Color(AtomicU32);
+
+impl Clone for Color {
+    fn clone(&self) -> Self {
+        Color(AtomicU32::new(self.0.load(Ordering::Relaxed).clone()))
+    }
+}
+
 
 #[derive(FromPyObject)]
 pub enum ColorAccessCode {
@@ -32,12 +42,12 @@ impl Color {
     #[new]
     #[pyo3(signature = (r, g, b, a=255))]
         fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
-        Color (u32::from_be_bytes([r, g, b, a]))
+        create_color!(u32::from_be_bytes([r, g, b, a]))
     }
 
     #[staticmethod]
     pub fn from_srgb(r: u8, g: u8, b: u8) -> PyResult<Color> {
-        Ok(Color(u32::from_be_bytes([r, g, b, 255])))
+        Ok(create_color!(u32::from_be_bytes([r, g, b, 255])))
     }
 
     #[staticmethod]
@@ -46,7 +56,7 @@ impl Color {
         find_invalid_range!(b, "Blue");
         find_invalid_range!(g, "Green");
         find_invalid_range!(a, "Alpha");
-        Ok(to_unit_rgb!(r, g, b, a))
+        Ok(to_unit_rgba!(r, g, b, a))
     }
 
     #[staticmethod]
@@ -56,12 +66,12 @@ impl Color {
         find_invalid_range!(y, "Yellow");
         find_invalid_range!(k, "Key (Black)");
         find_invalid_range!(transparency, "Transparency");
-        Ok(Color(u32::from_be_bytes([
+        Ok(Color(AtomicU32::from(u32::from_be_bytes([
             (255.0 * (1.0 - c) * (1.0 - k)).round() as u8,
             (255.0 * (1.0 - m) * (1.0 - k)).round() as u8,
             (255.0 * (1.0 - y) * (1.0 - k)).round() as u8,
             (transparency * 255.0) as u8
-        ])))
+        ]))))
     }
 
     #[staticmethod]
@@ -95,7 +105,7 @@ impl Color {
             12.92 * b
         };
 
-        Ok(to_unit_rgb!(r, g, b, transparency))
+        Ok(to_unit_rgba!(r, g, b, transparency))
     }
 
     #[staticmethod]
@@ -127,7 +137,7 @@ impl Color {
         let r = [v, b, a, a, c, v][index];
         let g = [c, v, v, b, a, a][index];
         let b = [a, a, c, v, v, b][index];
-        Ok(to_unit_rgb!(r, g, b, transparency))
+        Ok(to_unit_rgba!(r, g, b, transparency))
     }
 
     #[staticmethod]
@@ -148,7 +158,7 @@ impl Color {
             240..300 => (x, 0.0, c),
             _ => (c, 0.0, x),
         };
-        Ok(to_unit_rgb!(r + m, g + m, b + m, transparency))
+        Ok(to_unit_rgba!(r + m, g + m, b + m, transparency))
     }
 
     #[staticmethod]
@@ -160,25 +170,24 @@ impl Color {
         if adjusted_str.len() != 6 || adjusted_str.len() != 8 {
             return Err(PyValueError::new_err("Invalid Hex String Length"));
         }
-        let r: Result<u8, String> = interpret_to_hex(&adjusted_str, 0..2);
-        let g: Result<u8, String> = interpret_to_hex(&adjusted_str, 2..4);
-        let b: Result<u8, String> = interpret_to_hex(&adjusted_str, 4..6);
-        let mut a: Result<u8, String> = Ok(255);
-        if adjusted_str.len() == 8 {
-            a = interpret_to_hex(&adjusted_str, 4..6);
-        }
+        let r: Option<u8> = interpret_to_hex!(&adjusted_str, 0..2);
+        let g: Option<u8> = interpret_to_hex!(&adjusted_str, 2..4);
+        let b: Option<u8> = interpret_to_hex!(&adjusted_str, 4..6);
+        let a: Option<u8> = if adjusted_str.len() == 8 {
+            interpret_to_hex!(&adjusted_str, 4..6)
+        } else {Some(255)};
         match (r, g, b, a) {
-            (Ok(r), Ok(g), Ok(b), Ok(a)) => Ok(Color::new(r, g, b, a)),
-            (Err(_), _, _, _) => Err(PyValueError::new_err(
+            (Some(r), Some(g), Some(b), Some(a)) => Ok(Color::new(r, g, b, a)),
+            (None, _, _, _) => Err(PyValueError::new_err(
                 "Cannot Interpret The First Hexadecimal Part",
             )),
-            (_, Err(_), _, _) => Err(PyValueError::new_err(
+            (_, None, _, _) => Err(PyValueError::new_err(
                 "Cannot Interpret The Second Hexadecimal Part",
             )),
-            (_, _, Err(_), _) => Err(PyValueError::new_err(
+            (_, _, None, _) => Err(PyValueError::new_err(
                 "Cannot Interpret The Third Hexadecimal Part",
             )),
-            (_, _, _, Err(_)) => Err(PyValueError::new_err(
+            (_, _, _, None) => Err(PyValueError::new_err(
                 "Cannot Interpret The Fourth Hexadecimal Part",
             )),
         }
@@ -199,28 +208,32 @@ impl Color {
         let g = (-1.268_438 * l_cubed) + (2.609_757_4 * a_cubed) - (0.341_319_38 * b_cubed);
         let b = (-0.0041960863 * l_cubed) - (0.703_418_6 * a_cubed) + (1.707_614_7 * b_cubed);
 
-        to_unit_rgb!(r, g, b, transparency)
+        to_unit_rgba!(r, g, b, transparency)
     }
 
     #[staticmethod]
-    pub fn mlerp(start: Self, end: Self, t: f64) -> PyResult<Color> {
+    pub fn mlerp(start: PyRef<'_, Self>, end: PyRef<'_, Self>, t: f64) -> PyResult<Color> {
         find_invalid_range!(t, "t");
         let t_inverted = 1.0 - t;
+        let a = start.0.load(Ordering::Relaxed) as f64;
+        let b = end.0.load(Ordering::Relaxed) as f64;
 
-        Ok(Color(((t_inverted * start.0 as f64) + t * (end.0 as f64)).round() as u32))
+        Ok(create_color!(((t_inverted * a) + t * b).round() as u32))
     }
 
     #[staticmethod]
-    pub fn clerp(start: Self, end: Self, t: f64) -> PyResult<Color> {
+    pub fn clerp(start: PyRef<'_, Self>, end: PyRef<'_, Self>, t: f64) -> PyResult<Color> {
         find_invalid_range!(t, "t");
-        let lch_start = color_to_lch(start);
-        let lch_end = color_to_lch(end);
+        let a = start.0.load(Ordering::Relaxed);
+        let b = end.0.load(Ordering::Relaxed);
+        let lch_start = to_lch!(start);
+        let lch_end = to_lch!(end);
         let one_minus_t = 1.0 - t;
         let new_values = (
             (one_minus_t * lch_start.0) + (t * lch_end.0),
             (one_minus_t * lch_start.1) + (t * lch_end.1),
             (one_minus_t * (lch_start.2 as f64)) + (t * (lch_end.2 as f64)),
-            (one_minus_t * ((start.0 >> 24) & 0xFF) as f64) + (t * (((end.0 >> 24) & 0xFF) as f64)),
+            (one_minus_t * ((a >> 24) & 0xFF) as f64) + (t * (((b >> 24) & 0xFF) as f64)),
         );
         Color::from_lch(
             new_values.0,
@@ -230,140 +243,152 @@ impl Color {
         )
     }
 
-    pub fn mlerp_inplace(&mut self, end: Self, t: f64) -> PyResult<()> {
-        find_invalid_range!(t, "t");
-        let t_inverted = 1.0 - t;
-        self.0 = ((t_inverted * self.0 as f64) + t * (end.0 as f64)).round() as u32;
+    pub fn mlerp_inplace(slf: PyRef<'_, Self>, end: PyRef<'_, Self>, t: f64) -> PyResult<()> {
+        let result: PyResult<u32> = clerp_impl!(slf, end, t);
+        slf.0.store(result?, Ordering::Relaxed);
         Ok(())
     }
 
-    pub fn clerp_inplace(&mut self, end: Self, t: f64) -> PyResult<()> {
-        let result: Self = Color::clerp(*self, end, t)?;
-        self.0 = result.0;
+    pub fn clerp_inplace(slf: PyRef<'_, Self>, end: PyRef<'_, Self>, t: f64) -> PyResult<()> {
+        let result: PyResult<u32> = clerp_impl!(slf, end, t);
+        slf.0.store(result?, Ordering::Relaxed);
         Ok(())
     }
 
     #[staticmethod]
     pub fn blend<'a>(
-        mut slf: PyRefMut<'a, Self>,
-        other: Self,
+        slf: PyRef<'a, Self>,
+        other: PyRef<'_, Self>,
         blend_mode: blending::BlendingMode
-    ) -> PyResult<PyRefMut<'a, Self>> {
+    ) -> PyResult<PyRef<'a, Self>> {
         let rgba1 = to_decimal_rgba!(slf);
         let rgb2 = to_decimal_rgba!(other);
         let blended = blending::compute_blend(&blend_mode, rgba1, rgb2);
-        let result = to_unit_rgb!(blended.0, blended.1, blended.2, blended.3);
-        slf.0 = result.0;
+        slf.0.store(u32::from_be_bytes([
+            ((blended.0) * 255.0).round() as u8,
+            ((blended.1) * 255.0).round() as u8,
+            ((blended.2) * 255.0).round() as u8,
+            ((blended.3) * 255.0).round() as u8,
+        ]), Ordering::Relaxed);
         Ok(slf)
     }
 
     #[pyo3(signature = (other, include_transparency=false))]
     pub fn add<'a>(
-        mut slf: PyRefMut<'a, Self>,
+        slf: PyRef<'a, Self>,
         other: Self,
         include_transparency: bool,
-    ) -> PyResult<PyRefMut<'a, Self>> {
-        slf.0 = implement_color_to_color_operation!(slf, other, include_transparency, +);
+    ) -> PyResult<PyRef<'a, Self>> {
+        slf.0.store(implement_color_to_color_operation!(slf, other, include_transparency, saturating_add), Ordering::Relaxed);
         Ok(slf)
     }
 
     #[pyo3(signature = (other, include_transparency=false))]
     pub fn sub<'a>(
-        mut slf: PyRefMut<'a, Self>,
+        slf: PyRef<'a, Self>,
         py: Python<'_>,
         other: Py<PyAny>,
         include_transparency: bool
-    ) -> PyResult<PyRefMut<'a, Self>> {
-        let result: PyResult<u32> = implement_color_to_unknown_operation!(py, slf, other, include_transparency, -);
-        slf.0 = result?;
+    ) -> PyResult<PyRef<'a, Self>> {
+        let result: PyResult<u32> = implement_color_to_unknown_operation!(py, slf, other, include_transparency, sub, saturating_sub);
+        slf.0.store(result?, Ordering::Relaxed);
         Ok(slf)
     }
 
     #[pyo3(signature = (scalar, include_transparency=false))]
-    pub fn mul(mut slf: PyRefMut<'_, Self>, scalar: f32, include_transparency: bool) -> PyResult<PyRefMut<'_, Self>> {
-        slf.0 = implement_color_to_scalar_operation!(slf, scalar, include_transparency, *);
+    pub fn mul(slf: PyRef<'_, Self>, scalar: f32, include_transparency: bool) -> PyResult<PyRef<'_, Self>> {
+        slf.0.store(
+            implement_color_to_scalar_operation!(slf, scalar, include_transparency, mul),
+            Ordering::Relaxed
+        );
         Ok(slf)
     }
 
     #[pyo3(signature = (scalar, include_transparency=false))]
     pub fn div<'a>(
-        mut slf: PyRefMut<'a, Self>,
+        slf: PyRef<'a, Self>,
         scalar: f32,
         include_transparency: bool,
-    ) -> PyResult<PyRefMut<'a, Self>> {
+    ) -> PyResult<PyRef<'a, Self>> {
         if scalar == 0.0 {
             return Err(PyZeroDivisionError::new_err("Cannot divide a color by zero"))
         }
-        slf.0 = implement_color_to_scalar_operation!(slf, scalar, include_transparency, /);
+        slf.0.store(
+            implement_color_to_scalar_operation!(slf, scalar, include_transparency, div), 
+            Ordering::Relaxed
+        );
         Ok(slf)
     }
 
     #[pyo3(signature = (other, include_transparency=false))]
     pub fn tensor<'a>(
-        mut slf: PyRefMut<'a, Self>,
+        slf: PyRef<'a, Self>,
         other: Self,
         include_transparency: bool
-    ) -> PyRefMut<'a, Self> {
-        slf.0 = implement_color_to_color_operation!(slf, other, include_transparency, *);
+    ) -> PyRef<'a, Self> {
+        slf.0.store(
+            implement_color_to_color_operation!(slf, other, include_transparency, saturating_mul), 
+            Ordering::Relaxed
+        );
         slf
     }
 
     #[pyo3(signature = (base, include_transparency=false))]
     pub fn base_sqrt<'a>(
-        mut slf: PyRefMut<'a, Self>,
+        slf: PyRef<'a, Self>,
         base: isize,
         include_transparency: bool,
-    ) -> PyResult<PyRefMut<'a, Self>> {
+    ) -> PyResult<PyRef<'a, Self>> {
         if base <= 1 {
             return Err(PyValueError::new_err("Square root base has to be above 1"));
         }
         let float_base: f32 = 1.0 / (base as f32);
-        let channels = slf.0.to_be_bytes();
+        let channels = slf.0.load(Ordering::Relaxed).to_be_bytes();
         let r = (channels[0] as f32).powf(float_base).clamp(0.0, 255.0).floor() as u8;
         let g = (channels[1] as f32).powf(float_base).clamp(0.0, 255.0).floor() as u8;
         let b = (channels[2] as f32).powf(float_base).clamp(0.0, 255.0).floor() as u8;
         let a = if include_transparency {
             (channels[3] as f32).powf(float_base).clamp(0.0, 255.0).floor() as u8
         } else {channels[3]};
-        slf.0 = u32::from_be_bytes([r, g, b, a]);
+        slf.0.store(u32::from_be_bytes([r, g, b, a]), Ordering::Relaxed);
         Ok(slf)
     }
 
     #[pyo3(signature = (other, include_transparency=false))]
     pub fn max(&self, other: Self, include_transparency: bool) -> Self {
-        Color(unpack_rgba!(self, include_transparency).max(unpack_rgba!(other, include_transparency)))
+        create_color!(unpack_rgba!(self, include_transparency).max(unpack_rgba!(other, include_transparency)))
     }
 
     #[pyo3(signature = (other, include_transparency=false))]
     pub fn min(&self, other: Self, include_transparency: bool) -> Self {
-        Color(unpack_rgba!(self, include_transparency).min(unpack_rgba!(other, include_transparency)))
+        create_color!(unpack_rgba!(self, include_transparency).min(unpack_rgba!(other, include_transparency)))
     }
 
     #[pyo3(signature = (include_transparency=false))]
-    pub fn inverse(mut slf: PyRefMut<'_, Self>, include_transparency: bool) -> PyRefMut<'_, Self> {
-        let channels: [u8; 4] = slf.0.to_be_bytes();
-        slf.0 = u32::from_be_bytes([
+    pub fn inverse(slf: PyRef<'_, Self>, include_transparency: bool) -> PyRef<'_, Self> {
+        let channels: [u8; 4] = slf.0.load(Ordering::Relaxed).to_be_bytes();
+        slf.0.store(u32::from_be_bytes([
             255 - channels[0],
             255 - channels[1],
             255 - channels[2],
             if include_transparency {255 - channels[3]} else {channels[3]}
-        ]);
+        ]), Ordering::Relaxed);
         slf
     }
 
-    pub fn grayscale(mut slf: PyRefMut<'_, Self>) -> PyRefMut<'_, Self> {
-        let channels: [u8; 4] = slf.0.to_be_bytes();
+    pub fn grayscale(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        let channels: [u8; 4] = slf.0.load(Ordering::Relaxed).to_be_bytes();
         let value: u8 = (
             0.299 * channels[0] as f32 +
                 0.587 * channels[1] as f32 +
                 0.114 * channels[2] as f32
         ).round() as u8;
-        slf.0 = u32::from_be_bytes([
+        slf.0.store(u32::from_be_bytes([
             value,
             value,
             value,
             channels[3]
-        ]);
+        ]), Ordering::Relaxed);
         slf
     }
 
@@ -377,29 +402,29 @@ impl Color {
         ]
     }
 
-    pub fn adjust_temperature(mut slf: PyRefMut<'_, Self>, temperature: isize) -> PyRefMut<'_, Self> {
+    pub fn adjust_temperature(slf: PyRef<'_, Self>, temperature: isize) -> PyRef<'_, Self> {
         if temperature == 0 {
             return slf;
         }
         let adjusted_temp: u16 = temperature.clamp(-255, 255) as u16;
-        let channels: [u8; 4] = slf.0.to_be_bytes();
+        let channels: [u8; 4] = slf.0.load(Ordering::Relaxed).to_be_bytes();
         let r: u8 = ((channels[0] as u16) + adjusted_temp).clamp(0, 255) as u8;
         let b: u8 = ((channels[2] as u16) - adjusted_temp).clamp(0, 255) as u8;
-        slf.0 = u32::from_be_bytes([
+        slf.0.store(u32::from_be_bytes([
             r,
             channels[1],
             b,
             channels[3]
-        ]);
+        ]), Ordering::Relaxed);
         slf
     }
 
-    pub fn contrast(mut slf: PyRefMut<'_, Self>, factor: f32) -> PyRefMut<'_, Self> {
+    pub fn contrast(slf: PyRef<'_, Self>, factor: f32) -> PyRef<'_, Self> {
         if factor == 0.0 {
             return slf;
         }
         let new_factor = factor + 1.0;
-        let channels: [u8; 4] = slf.0.to_be_bytes();
+        let channels: [u8; 4] = slf.0.load(Ordering::Relaxed).to_be_bytes();
         let r = (127.5 + ((channels[0] as f32) - 127.5) * new_factor)
             .clamp(0.0, 255.0)
             .round() as u8;
@@ -409,16 +434,16 @@ impl Color {
         let b = (127.5 + ((channels[2] as f32) - 127.5) * new_factor)
             .clamp(0.0, 255.0)
             .round() as u8;
-        slf.0 = u32::from_be_bytes([
+        slf.0.store(u32::from_be_bytes([
             r,
             g,
             b,
             channels[3]
-        ]);
+        ]), Ordering::Relaxed);
         slf
     }
 
-    pub fn brightness(mut slf: PyRefMut<'_, Self>, factor: f32) -> PyRefMut<'_, Self> {
+    pub fn brightness(slf: PyRef<'_, Self>, factor: f32) -> PyRef<'_, Self> {
         if factor == 0.0 {
             return slf;
         }
@@ -426,7 +451,7 @@ impl Color {
         if factor < 0.0 {
             adjusted_factor = 1.0 / (factor.abs() + 1.0);
         }
-        let channels: [u8; 4] = slf.0.to_be_bytes();
+        let channels: [u8; 4] = slf.0.load(Ordering::Relaxed).to_be_bytes();
         let r = ((channels[0] as f32) * adjusted_factor).floor()
             .clamp(0.0, 255.0)
             .round() as u8;
@@ -436,16 +461,16 @@ impl Color {
         let b = ((channels[2] as f32) * adjusted_factor).floor()
             .clamp(0.0, 255.0)
             .round() as u8;
-        slf.0 = u32::from_be_bytes([
+        slf.0.store(u32::from_be_bytes([
             r,
             g,
             b,
             channels[3]
-        ]);
+        ]), Ordering::Relaxed);
         slf
     }
 
-    pub fn tint<'a>(mut slf: PyRefMut<'a, Self>, degrees: i16) -> PyResult<PyRefMut<'a, Self>> {
+    pub fn tint<'a>(slf: PyRef<'a, Self>, degrees: i16) -> PyResult<PyRef<'a, Self>> {
         let new_degrees = &degrees % 360;
         if new_degrees == 0 {
             return Ok(slf);
@@ -456,38 +481,38 @@ impl Color {
             hue, hsl.1, hsl.2,
             (extract_rgb_channel!(slf, 3) as f64) / 255.0
         )?;
-        slf.0 = new_color.0;
+        slf.0.store(new_color.0.into_inner(), Ordering::Relaxed);
         Ok(slf)
     }
 
-    pub fn saturate<'a>(mut slf: PyRefMut<'a, Self>, factor: f64) -> PyResult<PyRefMut<'a, Self>> {
+    pub fn saturate<'a>(slf: PyRef<'a, Self>, factor: f64) -> PyResult<PyRef<'a, Self>> {
         if factor == 0.0 {
             return Ok(slf);
         }
-        let mut hsv = color_to_hsv(*slf);
+        let mut hsv = to_hsv!(slf);
         hsv.1 *= factor + 1.0;
         let new_color = Color::from_hsv(
             hsv.0 as i16, hsv.1, hsv.2,
             (extract_rgb_channel!(slf, 3) as f64) / 255.0
         )?;
-        slf.0 = new_color.0;
+        slf.0.store(new_color.0.into_inner(), Ordering::Relaxed);
         Ok(slf)
     }
 
     #[pyo3(signature = (start=[Some(0), Some(0), Some(0), Some(0)], end=[Some(255), Some(255), Some(255), Some(255)]))]
     pub fn randomise<'a>(
-        mut slf: PyRefMut<'a, Self>,
-        _python: Python,
+        slf: PyRef<'a, Self>,
         start: [Option<u8>; 4],
         end: [Option<u8>; 4],
-    ) -> PyResult<PyRefMut<'a, Self>> {
+    ) -> PyResult<PyRef<'a, Self>> {
         let rand_num = RNG.lock().unwrap().next_u32();
+        let slf_num = slf.0.load(Ordering::Relaxed);
         let rand_bytes: Vec<u8> = start
             .into_iter()
             .enumerate()
             .map(|(index, x)| {
-                let low: u8 = x.unwrap_or((slf.0 << (index * 8)) as u8);
-                let high: u8 = end[index].unwrap_or((slf.0 << (index * 8)) as u8);
+                let low: u8 = x.unwrap_or((slf_num << (index * 8)) as u8);
+                let high: u8 = end[index].unwrap_or((slf_num << (index * 8)) as u8);
                 if low > high {
                     return Err(PyValueError::new_err(
                         format!(
@@ -503,7 +528,12 @@ impl Color {
             })
             .collect::<PyResult<Vec<_>>>()?;
 
-        slf.0 = u32::from_be_bytes([rand_bytes[0], rand_bytes[1], rand_bytes[2], rand_bytes[3]]);
+        slf.0.store(u32::from_be_bytes([
+            rand_bytes[0],
+            rand_bytes[1],
+            rand_bytes[2],
+            rand_bytes[3]
+        ]), Ordering::Relaxed);
         Ok(slf)
     }
 
@@ -527,8 +557,8 @@ impl Color {
         0.2126 * r + 0.7152 * g + 0.0722 * b
     }
 
-    pub fn get_saturation(&self, _python: Python) -> f32 {
-        let [r, g, b, _] = self.0.to_be_bytes();
+    pub fn get_saturation(&self) -> f32 {
+        let [r, g, b, _] = self.0.load(Ordering::Relaxed).to_be_bytes();
         let rgb_max: f32 = r.max(g).max(b) as f32;
         if rgb_max == 0.0 {
             return 0.0;
@@ -546,8 +576,8 @@ impl Color {
         include_transparency: bool,
     ) -> bool {
         let diff_adjusted: i16 = diff as i16;
-        let self_channels = self.0.to_be_bytes();
-        let other_channels = other.0.to_be_bytes();
+        let self_channels = self.0.load(Ordering::Relaxed).to_be_bytes();
+        let other_channels = other.0.load(Ordering::Relaxed).to_be_bytes();
         let alpha_part = if include_transparency {
             approx_equal_field!(self_channels[3] as i16, other_channels[3] as i16, diff_adjusted)
         } else { true };
@@ -559,12 +589,12 @@ impl Color {
     }
 
     pub fn copy(&self) -> Color {
-        Color(self.0.clone())
+        self.clone()
     }
 
     #[pyo3(signature = (include_transparency=false))]
     pub fn to_hex(&self, include_transparency: bool) -> String {
-        let channels = self.0.to_be_bytes();
+        let channels = self.0.load(Ordering::Relaxed).to_be_bytes();
         let hex_str = format!("#{:02x?}{:02x?}{:02x?}", channels[0], channels[1], channels[2]);
         if include_transparency {
             return hex_str + &format!("{:02x?}", channels[3]);
@@ -573,12 +603,12 @@ impl Color {
     }
 
     pub fn to_hsv(&self) -> (u16, f64, f64, f64) {
-        let hsv = color_to_hsv(*self);
+        let hsv = to_hsv!(self);
         (hsv.0, hsv.1, hsv.2, (extract_rgb_channel!(self, 3) as f64) / 255.0)
     }
 
     pub fn to_hsl(&self) -> (u16, f64, f64, f64) {
-        let values = calculate_hs(*self);
+        let values = calc_hue_saturation!(self);
         let l = (values.2 + values.3) / 2.0;
         let delta = values.2 - values.3;
         let s = if delta == 0.0 {
@@ -599,17 +629,17 @@ impl Color {
     }
 
     pub fn to_cmyk(&self) -> (f64, f64, f64, f64, f64) {
-        let rgb = to_decimal_rgba!(*self);
-        let k = 1.0 - rgb.0.max(rgb.1).max(rgb.2);
+        let rgba = to_decimal_rgba!(*self);
+        let k = 1.0 - rgba.0.max(rgba.1).max(rgba.2);
         let k_invert = 1.0 - k;
 
         if k_invert == 0.0 {
-            return (0.0, 0.0, 0.0, 1.0, ((self.0 >> 24) as f64) / 255.0);
+            return (0.0, 0.0, 0.0, 1.0, rgba.3);
         }
-        let c = (k_invert - rgb.0) / k_invert;
-        let m = (k_invert - rgb.1) / k_invert;
-        let y = (k_invert - rgb.2) / k_invert;
-        (c, m, y, k, ((self.0 >> 24) as f64) / 255.0)
+        let c = (k_invert - rgba.0) / k_invert;
+        let m = (k_invert - rgba.1) / k_invert;
+        let y = (k_invert - rgba.2) / k_invert;
+        (c, m, y, k, rgba.3)
     }
 
     pub fn to_xyz(&self) -> (f64, f64, f64, f64) {
@@ -639,22 +669,22 @@ impl Color {
             r * 0.4124 + g * 0.3576 + b * 0.1805,
             r * 0.2126 + g * 0.7152 + b * 0.0722,
             r * 0.0193 + g * 0.1192 + b * 0.9505,
-            ((self.0 >> 24) as f64) / 255.0
+            rgba.3
         )
     }
 
-    pub fn to_oklab(&self, _python: Python) -> (f64, f64, f64, f64) {
-        let oklab = color_to_oklab(*self);
-        (oklab.0, oklab.1, oklab.2, (extract_rgb_channel!(self, 3) as f64) / 255.0)
+    pub fn to_oklab(slf: PyRef<'_, Self>) -> (f64, f64, f64, f64) {
+        let oklab = to_oklab!(slf);
+        (oklab.0, oklab.1, oklab.2, (extract_rgb_channel!(&slf, 3) as f64) / 255.0)
     }
 
-    pub fn to_lch(&self, _python: Python) -> (f64, f64, u16, f64) {
-        let lch = color_to_lch(*self);
-        (lch.0, lch.1, lch.2, (extract_rgb_channel!(self, 3) as f64) / 255.0)
+    pub fn to_lch(slf: PyRef<'_, Self>) -> (f64, f64, u16, f64) {
+        let lch = to_lch!(slf);
+        (lch.0, lch.1, lch.2, (extract_rgb_channel!(&slf, 3) as f64) / 255.0)
     }
 
     pub fn to_rgba_list<'a>(&self, python: Python<'a>) -> PyResult<Bound<'a, PyList>> {
-        let rgba = self.0.to_be_bytes();
+        let rgba = self.0.load(Ordering::Relaxed).to_be_bytes();
         PyList::new(python, vec![rgba[0], rgba[1], rgba[2], rgba[3]])
     }
 
@@ -672,72 +702,80 @@ impl Color {
     }
 
     pub fn to_rgba_tuple<'a>(&self, python: Python<'a>) -> PyResult<Bound<'a, PyTuple>> {
-        let rgba = self.0.to_be_bytes();
+        let rgba = self.0.load(Ordering::Relaxed).to_be_bytes();
         PyTuple::new(python, vec![rgba[0], rgba[1], rgba[2], rgba[3]])
     }
 
     pub fn __str__(&self) -> String {
-        let rgba = self.0.to_be_bytes();
+        let rgba = self.0.load(Ordering::Relaxed).to_be_bytes();
         format!("({} : {} : {} : {})", rgba[0], rgba[1], rgba[2], rgba[3])
     }
 
     pub fn __repr__(&self) -> String {
-        let rgba = self.0.to_be_bytes();
+        let rgba = self.0.load(Ordering::Relaxed).to_be_bytes();
         format!("Color({}, {}, {}, {})", rgba[0], rgba[1], rgba[2], rgba[3])
     }
 
     pub fn __add__(&self, py: Python<'_>, other: Py<PyAny>) -> PyResult<Color> {
-        let result: PyResult<u32> = implement_color_to_unknown_operation!(py, self, other, true, +);
-        Ok(Color(result?))
+        let result: PyResult<u32> = implement_color_to_unknown_operation!(
+            py, self, other, true, add, saturating_add
+        );
+        Ok(create_color!(result?))
     }
 
     pub fn __sub__(&self, py: Python<'_>, other: Py<PyAny>) -> PyResult<Color> {
-        let result: PyResult<u32> = implement_color_to_unknown_operation!(py, self, other, true, -);
-        Ok(Color(result?))
+        let result: PyResult<u32> = implement_color_to_unknown_operation!(
+            py, self, other, true, sub, saturating_sub
+        );
+        Ok(create_color!(result?))
     }
 
     pub fn __mul__(&self, py: Python<'_>, other: Py<PyAny>) -> PyResult<Color> {
-        let result: PyResult<u32> = implement_color_to_unknown_operation!(py, self, other, true, *);
-        Ok(Color(result?))
+        let result: PyResult<u32> = implement_color_to_unknown_operation!(
+            py, self, other, true, mul, saturating_mul
+        );
+        Ok(create_color!(result?))
     }
 
     pub fn __truediv__(&self, other: f32) -> PyResult<Color> {
-        Ok(Color(implement_color_to_scalar_operation!(self, other, true, /)))
+        Ok(create_color!(implement_color_to_scalar_operation!(
+            self, other, true, div
+        )))
     }
 
     pub fn __floordiv__(&self, other: isize) -> Color {
         if other <= 0 {
-            return Color(0u32);
+            return create_color!(0u32);
         }
         let m = ((1u128 << 64) / other.abs() as u128) as u64 + 1;
-        let t = (self.0 as u64).wrapping_mul(m);
-        Color((t >> 32) as u32)
+        let t = (self.0.load(Ordering::Relaxed) as u64).wrapping_mul(m);
+        create_color!((t >> 32) as u32)
     }
 
     pub fn __hash__(&self) -> u64 {
         let mut hasher = ahash::AHasher::default();
-        self.0.hash(&mut hasher);
+        self.0.load(Ordering::Relaxed).hash(&mut hasher);
         hasher.finish()
     }
 
     pub fn __nonzero__(&self) -> bool {
-        self.0 != 0
+        self.0.load(Ordering::Relaxed) != 0
     }
 
     pub fn __bool__(&self) -> bool {
-        self.0 != 0
+        self.0.load(Ordering::Relaxed) != 0
     }
 
     pub fn __eq__(&self, other: Self) -> bool {
-        self.0 == other.0
+        self.0.load(Ordering::Relaxed) == other.0.load(Ordering::Relaxed)
     }
     pub fn __ne__(&self, other: Self) -> bool {
-        self.0 != other.0
+        self.0.load(Ordering::Relaxed) != other.0.load(Ordering::Relaxed)
     }
 
     pub fn __neg__(&self) -> Color {
-        let channels = self.0.to_be_bytes();
-        Color(u32::from_be_bytes([
+        let channels = self.0.load(Ordering::Relaxed).to_be_bytes();
+        create_color!(u32::from_be_bytes([
             255 - channels[0],
             255 - channels[1],
             255 - channels[2],
@@ -746,12 +784,12 @@ impl Color {
     }
 
     pub fn __pow__(&self, color: Self, base: f32) -> Color {
-        let channels = color.0.to_be_bytes();
+        let channels = color.0.load(Ordering::Relaxed).to_be_bytes();
         let r = (channels[0] as f32).powf(base).clamp(0.0, 255.0).floor() as u8;
         let g = (channels[1] as f32).powf(base).clamp(0.0, 255.0).floor() as u8;
         let b = (channels[2] as f32).powf(base).clamp(0.0, 255.0).floor() as u8;
         let a = (channels[3] as f32).powf(base).clamp(0.0, 255.0).floor() as u8;
-        Color(u32::from_be_bytes([r, g, b, a]))
+        create_color!(u32::from_be_bytes([r, g, b, a]))
     }
 
     pub fn __getitem__(&self, access_code: ColorAccessCode) -> PyResult<u8> {
@@ -779,12 +817,12 @@ impl Color {
     }
 
     pub fn __setitem__(
-        mut slf: PyRefMut<'_, Self>,
+        slf: PyRef<'_, Self>,
         python: Python<'_>,
         access_code: PyObject,
         new_value: u8,
     ) -> PyResult<()> {
-        let mut channels = slf.0.to_be_bytes();
+        let mut channels = slf.0.load(Ordering::Relaxed).to_be_bytes();
         let index: usize = if let Ok(index) = access_code.extract::<isize>(python) {
             if !(0isize..3isize).contains(&index) {
                 return Err(PyIndexError::new_err(
@@ -805,7 +843,7 @@ impl Color {
             }
         };
         channels[index] = new_value;
-        slf.0 = u32::from_be_bytes(channels);
+        slf.0.store(u32::from_be_bytes(channels), Ordering::Relaxed);
         Ok(())
     }
 
