@@ -1,17 +1,21 @@
+use std::simd::{f64x4, StdFloat};
+use std::simd::num::SimdUint;
+use std::simd::{u8x4, f32x4};
 use pyo3::exceptions::{PyIndexError, PyValueError, PyZeroDivisionError};
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyTuple};
 use std::f64::consts::PI;
 use std::hash::{Hash, Hasher};
 use std::ops::{Add, Div, Mul, Sub};
+use std::simd::prelude::SimdFloat;
 use std::sync::{LazyLock, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
 use rand::prelude::SmallRng;
 use rand::{RngCore, SeedableRng};
 use crate::{approx_equal_field, create_color, calc_hue_saturation, find_invalid_range};
-use crate::{extract_rgba_channels, extract_rgb_channel};
-use crate::{implement_color_to_color_operation, implement_color_to_scalar_operation, implement_color_to_unknown_operation};
+use crate::{extract_rgb_channel};
 use crate::{shift_impl, to_decimal_rgba, to_lch, to_oklab, to_unit_rgba, unpack_rgba, to_hsv, clerp_impl, interpret_to_hex};
+use crate::color::utils::{color_to_color_operation, color_to_scalar_operation, color_to_unknown_operation};
 
 pub mod blending;
 pub mod consts;
@@ -22,7 +26,7 @@ static RNG: LazyLock<Mutex<SmallRng>> = LazyLock::new(|| Mutex::new(SmallRng::fr
 
 #[repr(C)]
 #[pyclass(frozen)]
-pub struct Color(AtomicU32);
+pub struct Color(pub(crate) AtomicU32);
 
 impl Clone for Color {
     fn clone(&self) -> Self {
@@ -279,7 +283,9 @@ impl Color {
         other: Self,
         include_transparency: bool,
     ) -> PyResult<PyRef<'a, Self>> {
-        slf.0.store(implement_color_to_color_operation!(slf, other, include_transparency, saturating_add), Ordering::Relaxed);
+        slf.0.store(color_to_color_operation(
+            &*slf, &other, include_transparency, |_| 0, u8x4::saturating_add
+        ), Ordering::Relaxed);
         Ok(slf)
     }
 
@@ -290,15 +296,18 @@ impl Color {
         other: Py<PyAny>,
         include_transparency: bool
     ) -> PyResult<PyRef<'a, Self>> {
-        let result: PyResult<u32> = implement_color_to_unknown_operation!(py, slf, other, include_transparency, sub, saturating_sub);
+        let result: PyResult<u32> = color_to_unknown_operation(
+            py, &*slf, other, include_transparency,
+            |_| 0, f64x4::sub, u8x4::saturating_sub
+        );
         slf.0.store(result?, Ordering::Relaxed);
         Ok(slf)
     }
 
     #[pyo3(signature = (scalar, include_transparency=false))]
-    pub fn mul(slf: PyRef<'_, Self>, scalar: f32, include_transparency: bool) -> PyResult<PyRef<'_, Self>> {
+    pub fn mul(slf: PyRef<'_, Self>, scalar: f64, include_transparency: bool) -> PyResult<PyRef<'_, Self>> {
         slf.0.store(
-            implement_color_to_scalar_operation!(slf, scalar, include_transparency, mul),
+            color_to_scalar_operation(&*slf, scalar, include_transparency, |_| 1, f64x4::mul),
             Ordering::Relaxed
         );
         Ok(slf)
@@ -307,14 +316,14 @@ impl Color {
     #[pyo3(signature = (scalar, include_transparency=false))]
     pub fn div<'a>(
         slf: PyRef<'a, Self>,
-        scalar: f32,
+        scalar: f64,
         include_transparency: bool,
     ) -> PyResult<PyRef<'a, Self>> {
         if scalar == 0.0 {
             return Err(PyZeroDivisionError::new_err("Cannot divide a color by zero"))
         }
         slf.0.store(
-            implement_color_to_scalar_operation!(slf, scalar, include_transparency, div), 
+            color_to_scalar_operation(&*slf, scalar, include_transparency, |_| 1, f64x4::div),
             Ordering::Relaxed
         );
         Ok(slf)
@@ -327,7 +336,11 @@ impl Color {
         include_transparency: bool
     ) -> PyRef<'a, Self> {
         slf.0.store(
-            implement_color_to_color_operation!(slf, other, include_transparency, saturating_mul), 
+            color_to_color_operation(&*slf, &other, include_transparency, |_| 1, |a, b| {
+                (a.cast() as f32x4).mul(b.cast() as f32x4).round()
+                    .simd_max(f32x4::splat(0f32))
+                    .simd_min(f32x4::splat(255f32)).cast() as u8x4
+            }),
             Ordering::Relaxed
         );
         slf
@@ -717,29 +730,33 @@ impl Color {
     }
 
     pub fn __add__(&self, py: Python<'_>, other: Py<PyAny>) -> PyResult<Color> {
-        let result: PyResult<u32> = implement_color_to_unknown_operation!(
-            py, self, other, true, add, saturating_add
+        let result: PyResult<u32> = color_to_unknown_operation(
+            py, self, other, true,
+            |_| 0, f64x4::add, u8x4::saturating_add
         );
         Ok(create_color!(result?))
     }
 
     pub fn __sub__(&self, py: Python<'_>, other: Py<PyAny>) -> PyResult<Color> {
-        let result: PyResult<u32> = implement_color_to_unknown_operation!(
-            py, self, other, true, sub, saturating_sub
+        let result: PyResult<u32> = color_to_unknown_operation(
+            py, self, other, true,
+            |_| 0, f64x4::sub, u8x4::saturating_sub
         );
         Ok(create_color!(result?))
     }
 
     pub fn __mul__(&self, py: Python<'_>, other: Py<PyAny>) -> PyResult<Color> {
-        let result: PyResult<u32> = implement_color_to_unknown_operation!(
-            py, self, other, true, mul, saturating_mul
+        let result: PyResult<u32> = color_to_unknown_operation(
+            py, self, other, true,
+            |_| 0, f64x4::mul, |a, b| a.mul(b)
+                .clamp(u8x4::splat(0u8), u8x4::splat(255u8))
         );
         Ok(create_color!(result?))
     }
 
-    pub fn __truediv__(&self, other: f32) -> PyResult<Color> {
-        Ok(create_color!(implement_color_to_scalar_operation!(
-            self, other, true, div
+    pub fn __truediv__(&self, other: f64) -> PyResult<Color> {
+        Ok(create_color!(color_to_scalar_operation(
+            self, other, true, |_| 1, f64x4::div
         )))
     }
 

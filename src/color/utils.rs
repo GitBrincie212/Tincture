@@ -1,3 +1,9 @@
+use std::sync::atomic::Ordering;
+use crate::extract_rgba_channels;
+use std::simd::{f64x4, u8x4, StdFloat};
+use pyo3::{PyObject, PyResult, Python};
+use crate::color::Color;
+
 #[macro_export]
 macro_rules! to_decimal_rgba {
     ($color: expr) => {{
@@ -113,17 +119,90 @@ macro_rules! to_unit_rgba {
 }
 
 #[macro_export]
-macro_rules! implement_color_to_color_operation {
-    ($slf: expr, $other: expr, $include_transparency: expr, $func: ident) => {{
-        let [r1, g1, b1, a1] = extract_rgba_channels!($slf);
-        let [r2, g2, b2, a2] = extract_rgba_channels!($other);
-        u32::from_be_bytes([
-            r1.$func(r2),
-            g1.$func(g2),
-            b1.$func(b2),
-            if $include_transparency {a1.$func(a2)} else {a1}
-        ])
+macro_rules! extract_rgb_channel {
+    ($self: expr, $index: expr) => {
+        (($self.0.load(Ordering::Relaxed) >> (8 * $index)) & 0xFF) as u8
+    };
+}
+
+#[macro_export]
+macro_rules! extract_rgba_channels_by_type {
+    ($self: expr, $channel_type: tt, $identity_func: expr) => {{
+        let value = $self.0.load(Ordering::Relaxed);
+        [
+            ((value >> 24) & 0xFF) as $channel_type,
+            ((value >> 16) & 0xFF) as $channel_type,
+            ((value >> 8)  & 0xFF) as $channel_type,
+            $identity_func(value) as $channel_type,
+        ]
     }};
+}
+
+#[macro_export]
+macro_rules! extract_rgba_channels {
+    ($self: expr, $include_transparency: expr, $identity_func: expr) => {{
+        if $include_transparency {
+            extract_rgba_channels!($self)
+        } else {extract_rgba_channels_by_type!($self, u8, $identity_func)}
+    }};
+
+    ($self: expr) => {{
+        $self.0.load(Ordering::Relaxed).to_be_bytes()
+    }};
+}
+
+#[inline(always)]
+pub(crate) fn color_to_color_operation<Op>(
+    a: &Color,
+    b: &Color,
+    include_transparency: bool,
+    identity_fn: impl Fn(u32) -> u8,
+    op: Op,
+) -> u32 where Op: Fn(u8x4, u8x4) -> u8x4, {
+    let a_bits = extract_rgba_channels!(a);
+    let b_bits = extract_rgba_channels!(b, include_transparency, identity_fn);
+    let a_vec = u8x4::from_array(a_bits);
+    let b_vec = u8x4::from_array(b_bits);
+    u32::from_be_bytes(*op(a_vec, b_vec).as_array())
+}
+
+#[inline(always)]
+pub(crate) fn color_to_scalar_operation<Op>(
+    a: &Color,
+    b: f64,
+    include_transparency: bool,
+    identity_fn: impl Fn(u32) -> u8,
+    op: Op,
+) -> u32 where Op: Fn(f64x4, f64x4) -> f64x4, {
+    let a_bits = extract_rgba_channels_by_type!(a, f64, |value| {
+        if include_transparency {value as u8} else {identity_fn(value)}
+    });
+    let a_vec = f64x4::from_array(a_bits);
+    let b_vec = f64x4::splat(b);
+    let result = op(a_vec, b_vec).round();
+    u32::from_be_bytes([
+        result[0] as u8,
+        result[1] as u8,
+        result[2] as u8,
+        result[3] as u8
+    ])
+}
+
+#[inline(always)]
+pub(crate) fn color_to_unknown_operation<ScalarOP, ColorOP>(
+    py: Python<'_>,
+    a: &Color,
+    b: PyObject,
+    include_transparency: bool,
+    identity_fn: impl Fn(u32) -> u8,
+    scalar_op: ScalarOP,
+    color_op: ColorOP,
+) -> PyResult<u32> where ScalarOP: Fn(f64x4, f64x4) -> f64x4, ColorOP: Fn(u8x4, u8x4) -> u8x4 {
+    if let Ok(scalar) = b.extract::<isize>(py) {
+        return Ok(color_to_scalar_operation(a, scalar as f64, include_transparency, identity_fn, scalar_op))
+    }
+    let other = b.extract::<Color>(py)?;
+    Ok(color_to_color_operation(a, &other, include_transparency, identity_fn, color_op))
 }
 
 #[macro_export]
@@ -150,51 +229,10 @@ macro_rules! unpack_rgba {
 }
 
 #[macro_export]
-macro_rules! implement_color_to_scalar_operation {
-    ($self: expr, $other: expr, $include_transparency: expr, $func: ident) => {{
-        let channels: [u8; 4] = extract_rgba_channels!($self);
-        u32::from_be_bytes([
-            (f32::from(channels[0]).$func($other)).clamp(0.0, 255.0) as u8,
-            (f32::from(channels[1]).$func($other)).clamp(0.0, 255.0) as u8,
-            (f32::from(channels[2]).$func($other)).clamp(0.0, 255.0) as u8,
-            if $include_transparency {
-                (f32::from(channels[3]).$func($other)).clamp(0.0, 255.0) as u8
-            } else {channels[3]}
-        ])
-    }};
-}
-
-#[macro_export]
-macro_rules! implement_color_to_unknown_operation {
-    ($py: expr, $slf: expr, $other: expr, $include_transparency: expr, $color_func: ident, $scalar_func: ident) => {{
-        if let Ok(scalar) = $other.extract::<isize>($py) {
-            Ok(implement_color_to_scalar_operation!($slf, scalar as f32, $include_transparency, $color_func))
-        } else {
-            let col = $other.extract::<Color>($py)?;
-            Ok(implement_color_to_color_operation!($slf, col, $include_transparency, $scalar_func))
-        }
-    }};
-}
-
-#[macro_export]
 macro_rules! approx_equal_field  {
     ($value: expr, $diff: expr, $value2: expr) => {
         $value - $diff <= $value2 && $value2 <= $value + $diff
     };
-}
-
-#[macro_export]
-macro_rules! extract_rgb_channel {
-    ($self: expr, $index: expr) => {
-        (($self.0.load(Ordering::Relaxed) >> (8 * $index)) & 0xFF) as u8
-    };
-}
-
-#[macro_export]
-macro_rules! extract_rgba_channels {
-    ($self: expr) => {{
-        $self.0.load(Ordering::Relaxed).to_be_bytes()
-    }};
 }
 
 #[macro_export]
