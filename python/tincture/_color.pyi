@@ -12,10 +12,6 @@ class Color:
         :param b: The Blue Component Of The Color.
         :param a: The Alpha Component Of The Color
         """
-        self.r = r
-        self.g = g
-        self.b = b
-        self.a = a
         ...
 
     @staticmethod
