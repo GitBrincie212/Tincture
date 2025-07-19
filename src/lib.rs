@@ -1,13 +1,16 @@
+#![feature(portable_simd)]
 #![allow(unused_must_use)]
 #![allow(clippy::wrong_self_convention)]
 
 mod color;
+mod batch;
 
 use pyo3::prelude::*;
 
 #[pymodule]
 fn tincture(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<color::Color>();
+    m.add_class::<batch::ColorBatch>();
     m.add_class::<color::blending::BlendingMode>();
     m.add("WHITE", color::consts::WHITE);
     m.add("RED", color::consts::RED);
