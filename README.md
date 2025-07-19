@@ -7,17 +7,16 @@ As of now the library is not ready to be used for production. It is currently be
 gets published in PyPi it will be ready for production-use
 ---
 
-Tincture is a relatively small library that provides a flexible color class allowing for all sorts of modifications.
+Tincture is a relatively small library that provides a flexible color class allowing for all sorts of color science stuff.
 These include color interpolation, temperature adjustment, contrasting, getting luminance of a color, adjusting the
 brightness of a color... etc. It also has a wide range of color space conversations either converting from a color space
-to a color object or vice versa. Tincture is written in rust to ensure performance over color management
-
-Tincture is mostly meant to be used to provide a fully ready to use color class without having to write the code yourself
-in supporting a bunch of operations, methods, conversations... etc. This library will be used throughout some of my other
-python libraries to alleviate pain points
+to a color object or vice versa. Tincture is also masterfully crafted to be optimised for heavy computations as shown in
+this benchmark graph, (lightning speed computations can be achieved with the **Tincture Batch-API**)
+![Benchmark Graph](assets/benchmark.png)
 
 ---
-All the documentation in tincture is written in docstrings. Here are some examples of using tincture
+All the documentation in tincture is written in docstrings. But Here are some examples of using tincture to get you
+started on using it
 
 _Basic Usage_
 
