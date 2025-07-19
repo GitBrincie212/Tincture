@@ -12,6 +12,8 @@ crate-type = ["cdylib", "rlib"]
 pyo3 = "*"
 rand = { version = "*", features = ["small_rng"] }
 ahash = "*"
+rayon="*"
+crossbeam = "*"
 
 [profile.release]
 opt-level = 3
