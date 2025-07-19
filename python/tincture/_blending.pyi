@@ -2,7 +2,7 @@ from enum import Enum, auto
 
 class BlendingMode(Enum):
     """
-    Specifies the blending modes to be used when calling :func:`Color.blend() <tincture.Color.blend>`. It serves
+    Specifies the blending modes to be used when calling `Color.blend()`. It serves
     multiple different blending mode values you can pick from. It should be noted that if there are more than three
     colors supplied in the blend operation. Then the blending calculation goes from right to left where it picks
     the first color together with the second color to produce a blended result. This blended result then is used with
