@@ -1,4 +1,5 @@
 from ._color import Color
+from ._batch import ColorBatch
 
 WHITE: Color
 BLACK: Color
