@@ -24,7 +24,7 @@ class Color:
          Color(213, 85, 120)
          ```
 
-         It accepts integer params, which they have to be in the range of 0-255, otherwise the fail.
+         It accepts integer params, which they have to be in the range of 0-255, otherwise it fails.
          For the R, G, B. If you are looking for decimal values, then there is a function for that,
          just called:  ``Color.from_decimal_rgba(...)``
 
@@ -161,11 +161,11 @@ class Color:
         starting color, an ending color and a **t** value which is a percentage value. It creates
         the color half-way. If the t value is out of range, then it throws an error
 
-        **Important Note:** This version interpolates the 3 RGB channels which is prone to
-        some errors, for a better alternative it is best to use [clerp].
+        **Important Note:** This version interpolates the RGBA channels which is prone to
+        some errors, for a better alternative it is best to use ``Color.clerp(...)``.
 
         Note: There is a function that does this in place as opposed to generating a new color value.
-        The function is called [mlerp_inplace]
+        The function is called ``Color.mlerp_inplace(...)``
 
         :param start: The beginning color that will be used in the operation.
         :param end: The ending color that will be used
@@ -182,11 +182,12 @@ class Color:
         NOTE: As of now, there are major miscalculations that as of the time writing.
         It should NOT be used in production use until otherwise fixed. We want to fix this but it will take time
 
-        **Important Note:** This differs from [mlerp] which interpolates the 3 RGB channels.
-        The operation uses the LCH color space which can be.a tiny bit heavier on the computer
+        **Important Note:** This differs from ``Color.mlerp(...)`` which interpolates the 3 RGB channels.
+        The operation uses the LCH color space which can be a tiny bit heavier on the computer but often times
+        negligible
 
         Note: There is a function that does this in place as opposed to generating a new color value.
-        The function is called [clerp_inplace]
+        The function is called ``Color.clerp_inplace(...)``
 
         :param start: The beginning color that will be used in the operation.
         :param end: The ending color that will be used
@@ -194,32 +195,30 @@ class Color:
         """
         ...
     @staticmethod
-    def blend(blend_mode: BlendingMode, *args: tuple[Color]) -> Color:
+    def blend(other: Color, blend_mode: BlendingMode) -> Color:
         """
-        Blends multiple colors together with a blending operation. For blending modes,
-        you should look into the BlendingMode class. There should be a minimum of two Colors,
-        if there are more than two, then the operation will pick the first color and second color
-        to blend with. Afterward, it will pick the blended result with the third color and so on
-        until all the supplied colors are used in blending
+        Blends this color with another color (supplied in the arguments) together with a blending operation.
+        For blending modes, you should look into the BlendingMode enum class. The self color acts as the foreground
+        whereas the other color acts as the background color.
         """
         ...
 
 
     def clerp_inplace(self, end: "Color", t: float) -> None:
         """
-        Perform a more accurate color lerp version of mlerp operation on this specific color and
+        Perform a more accurate color lerp version of ``Color.mlerp(...)`` operation on this specific color and
         modify the RGB channels. It needs an ending color and a **t** value, which is a percentage value. It creates
         the color half-way. If the t value is out of range, then it throws an error
 
         NOTE: As of now, there are major miscalculations that as of the time writing.
         It should NOT be used in production use until otherwise fixed. We want to fix this but it will take time
 
-        **Important Note:** This differs from [mlerp] which interpolates the 3 RGB channels.
+        **Important Note:** This differs from ``Color.mlerp(...)`` which interpolates the 3 RGB channels.
         The operation uses the LCH color space which might involve a tiny bit of more computation to lerp
-        as opposed to [mlerp] but produces a more pleasing result at the end
+        as opposed to ``Color.mlerp(...)`` but produces a more pleasing result at the end
 
         Note: There is a function that generates a new color value as opposed to perform in place.
-        The function is called [clerp]
+        The function is called ``Color.clerp(...)``
 
         :param end: The ending color that will be used
         :param t: A "t" value that is a percentage and is used to produce the intermediate color
@@ -228,15 +227,15 @@ class Color:
 
     def mlerp_inplace(self, end: Color, t: float) -> None:
         """
-        Perform an RGB color lerp operation on this specific color and modify the RGB channels.
+        Perform an RGBA color lerp operation on this specific color and modify the RGBA channels.
         It needs an ending color and a **t** value, which is a percentage value. It creates
         the color half-way. If the t value is out of range, then it throws an error
 
-        **Important Note:** This version interpolates the 3 RGB channels which is prone to
-        some errors, for a better alternative it is best to use [clerp_inplace].
+        **Important Note:** This version interpolates the 3 RGBA channels which is prone to
+        some errors, for a better alternative it is best to use ``Color.clerp_inplace(...)``.
 
         Note: There is a function that generates a new color value as opposed to perform in place.
-        The function is called [mlerp]
+        The function is called ``Color.mlerp(...)``
 
         :param end: The ending color that will be used
         :param t: A "t" value that is a percentage and is used to produce the intermediate color
@@ -279,7 +278,7 @@ class Color:
         """
         Performs a multiplication operation between this color and a scalar value, then it returns
         a new color value. The RGB values are clamped to the range of 0.0 and 255.0 (including both),
-        the values are floored when multiplied by this scalar value. For division checkout [div].
+        the values are floored when multiplied by this scalar value. For division checkout ``Color.div(...)``.
         If you want, you can opt in to include the alpha channel as well
 
         :param scalar : The scalar value for the multiplication operation
@@ -293,7 +292,7 @@ class Color:
         Performs a division operation between this color and a scalar value, then it returns
         a new color value. The RGB values are clamped to the range of 0.0 and 255.0 (including both),
         the values are floored when multiplied by this scalar value. If the scalar value is zero, then
-        it throws an error indicating division by zero. For multiplication check out [mul]. If you want,
+        it throws an error indicating division by zero. For multiplication, check out ``Color.mul(...)``. If you want,
         you can opt in to include the alpha channel as well
 
         :param scalar : The scalar value for the division operation
@@ -323,7 +322,6 @@ class Color:
 
         **Note:** in case where you want to square root, this is more optimal than using ``Color.nth_root(2)``
 
-        :param base: The square root base
         :param include_transparency : Performs the operation in addition to the alpha channel when set to true;
         By default, it is set to be false
         """
@@ -336,7 +334,7 @@ class Color:
         the self color value. The RGB values are clamped to the range of 0.0 and 255.0 (including both),
         The base of the n-th root has to be above 1 otherwise an error will be thrown. You can opt in
         if you want to include the alpha channel as well
-        
+
         **Note:** in case where you want to square root, it is more optimal to use ``Color.sqrt()`` than this method
 
         :param base: The n-th root base
