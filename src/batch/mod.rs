@@ -119,32 +119,36 @@ impl ColorBatch {
 
     #[pyo3(signature = (colors, include_transparency=true))]
     pub fn mul(slf: PyRef<'_, Self>, colors: Vec<Color>, include_transparency: bool) -> PyRef<'_, Self> {
+        let m = (include_transparency as u8).wrapping_neg();
         let packed: Vec<f64x4> = color_to_packed!(colors, |x: u32| {
-            ((x as u8) & (include_transparency as u8).wrapping_neg()) as f64
+            (((x as u8) & m) | (1u8 & !m)) as f64
         });
-        slf.queue.push(BatchInstructionSet::LowerSub(packed));
+        slf.queue.push(BatchInstructionSet::LowerMul(packed));
         slf
     }
 
     #[pyo3(signature = (scalars, include_transparency=true))]
     pub fn mul_scalar(slf: PyRef<'_, Self>, scalars: Vec<f64>, include_transparency: bool) -> PyRef<'_, Self> {
-        let packed: Vec<f64x4> = scalar_to_packed!(scalars, |x| x * f64::from(include_transparency));
-        slf.queue.push(BatchInstructionSet::LowerSub(packed));
+        let transparency = f64::from(include_transparency);
+        let packed: Vec<f64x4> = scalar_to_packed!(scalars, |x| x * transparency + 1.0 * (1.0 - transparency));
+        slf.queue.push(BatchInstructionSet::LowerMul(packed));
         slf
     }
 
     #[pyo3(signature = (scalars, include_transparency=true))]
     pub fn div_scalar(slf: PyRef<'_, Self>, scalars: Vec<f64>, include_transparency: bool) -> PyRef<'_, Self> {
-        let packed: Vec<f64x4> = scalar_to_packed!(scalars, |x| x * f64::from(include_transparency));
+        let transparency = f64::from(include_transparency);
+        let packed: Vec<f64x4> = scalar_to_packed!(scalars, |x| x * transparency + 1.0 * (1.0 - transparency));
         slf.queue.push(BatchInstructionSet::DivScalarToBatch(packed));
         slf
     }
 
     #[pyo3(signature = (scalars, include_transparency=true))]
     pub fn nth_root_scalar(slf: PyRef<'_, Self>, scalars: Vec<f64>, include_transparency: bool) -> PyRef<'_, Self> {
+        let transparency = f64::from(include_transparency);
         let packed: Vec<[f64; 4]> = scalars
             .par_iter()
-            .map(|x| [*x, *x, *x, x * f64::from(include_transparency)])
+            .map(|x| [*x, *x, *x, x * transparency + 1.0 * (1.0 - transparency)])
             .collect();
         slf.queue.push(BatchInstructionSet::NthRootScalarToBatch(packed));
         slf
