@@ -10,6 +10,7 @@ use crate::batch::batch_instructions::{BatchInstructionSet};
 use crate::color::Color;
 use rayon::prelude::*;
 use crate::{color_to_packed, create_color, extract_rgba_channels_by_type, handle_lower_operation, scalar_to_packed};
+use crate::color::blending::{compute_blend, BlendingMode};
 
 mod utils;
 mod batch_instructions;
@@ -62,6 +63,15 @@ impl ColorBatch {
                                 lane[1] = lane[1].powf(1.0 / src[1]);
                                 lane[2] = lane[2].powf(1.0 / src[2]);
                                 lane[3] = lane[3].powf(1.0 / src[3]);
+                            }
+                        });
+                }
+                BatchInstructionSet::BlendMode(other, modes) => {
+                    self_lanes
+                        .par_iter_mut()
+                        .for_each(|lane| {
+                            for (src, mode) in other.iter().zip(modes.iter()) {
+                                *lane = compute_blend(mode, *lane, *src);
                             }
                         });
                 }
@@ -154,6 +164,35 @@ impl ColorBatch {
         slf
     }
 
+    #[pyo3(signature = (colors, modes))]
+    pub fn blend(
+        slf: PyRef<'_, Self>, colors: Vec<Color>, modes: Vec<BlendingMode>
+    ) -> PyResult<PyRef<'_, Self>> {
+        if colors.len() != modes.len() {
+            return Err(exceptions::PyValueError::new_err("Expected colors and modes lists to have the same length, but they differ"))
+        }
+        slf.queue.push(BatchInstructionSet::BlendMode(
+            colors.as_slice()
+                .par_iter()
+                .map(|x| {
+                    f64x4::from_array(
+                        {
+                            let value = x.0.load(Ordering::Relaxed);
+                            [
+                                ((value >> 24) & 0xFF) as f64,
+                                ((value >> 16) & 0xFF) as f64,
+                                ((value >> 8) & 0xFF) as f64,
+                                value as u8 as f64
+                            ]
+                        }
+                    )
+                })
+                .collect(),
+            modes
+        ));
+        Ok(slf)
+    }
+
     pub fn __str__(&self) -> String {
         self.__repr__()
     }
@@ -182,8 +221,14 @@ impl ColorBatch {
         Ok(())
     }
 
-    pub fn operate(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+    pub fn operate_inplace(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf.exec();
         slf
+    }
+
+    pub fn operate(slf: PyRef<'_, Self>) -> Self {
+        let new_col = slf.clone();
+        new_col.exec();
+        new_col
     }
 }

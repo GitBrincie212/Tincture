@@ -1,4 +1,5 @@
 from tincture import Color
+from tincture._blending import BlendingMode
 
 
 class ColorBatch:
@@ -117,6 +118,18 @@ class ColorBatch:
 
         :param scalars: The scalars to take the nth root off the current batch
         :param include_transparency: Whenever or not to operate on the alpha channel as well
+        :return: Returns the self color batch that was called on the method
+        """
+        ...
+
+    def blend(self, colors: list[Color], blend_modes: list[BlendingMode]) -> "ColorBatch":
+        """
+        Creates an instruction for blending the colors in this color batch with a list of colors using the
+        blending modes defined in the blend_modes argument. The colors act as the background whereas the batch is the foreground,
+         lastly, when it's complete, it returns the self ColorBatch instance (for continuous operations)
+
+        :param colors: The colors to blend with the current batch
+        :param blend_modes: The blending modes to use for the blending operations
         :return: Returns the self color batch that was called on the method
         """
         ...
