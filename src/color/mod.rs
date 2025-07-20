@@ -5,15 +5,17 @@ use pyo3::exceptions::{PyIndexError, PyValueError, PyZeroDivisionError};
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyTuple};
 use std::f64::consts::PI;
+use std::ffi::c_uint;
 use std::hash::{Hash, Hasher};
 use std::ops::{Add, Div, Mul, Sub};
-use std::simd::prelude::SimdFloat;
+use std::simd::prelude::{SimdFloat, SimdPartialOrd};
 use std::sync::{LazyLock, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
+use pyo3::impl_::callback::IntoPyCallbackOutput;
 use rand::prelude::SmallRng;
 use rand::{RngCore, SeedableRng};
 use crate::{approx_equal_field, create_color, calc_hue_saturation, find_invalid_range};
-use crate::{extract_rgb_channel};
+use crate::{extract_rgb_channel, extract_rgba_channels_by_type};
 use crate::{shift_impl, to_decimal_rgba, to_lch, to_oklab, to_unit_rgba, unpack_rgba, to_hsv, clerp_impl, interpret_to_hex};
 use crate::color::utils::{color_to_color_operation, color_to_scalar_operation, color_to_unknown_operation};
 
@@ -30,7 +32,14 @@ pub struct Color(pub(crate) AtomicU32);
 
 impl Clone for Color {
     fn clone(&self) -> Self {
-        Color(AtomicU32::new(self.0.load(Ordering::Relaxed).clone()))
+        Color(AtomicU32::new(self.0.load(Ordering::Relaxed)))
+    }
+}
+
+impl IntoPyCallbackOutput<'_, c_uint> for Color {
+    #[inline]
+    fn convert(self, _: Python<'_>) -> PyResult<c_uint> {
+        Ok(self.0.load(Ordering::Relaxed) as c_uint)
     }
 }
 
@@ -268,11 +277,12 @@ impl Color {
         let rgba1 = to_decimal_rgba!(slf);
         let rgb2 = to_decimal_rgba!(other);
         let blended = blending::compute_blend(&blend_mode, rgba1, rgb2);
+        let blended = (blended * f64x4::splat(255.0)).round();
         slf.0.store(u32::from_be_bytes([
-            ((blended.0) * 255.0).round() as u8,
-            ((blended.1) * 255.0).round() as u8,
-            ((blended.2) * 255.0).round() as u8,
-            ((blended.3) * 255.0).round() as u8,
+            blended[0] as u8,
+            blended[1] as u8,
+            blended[2] as u8,
+            blended[3] as u8,
         ]), Ordering::Relaxed);
         Ok(slf)
     }
@@ -284,7 +294,7 @@ impl Color {
         include_transparency: bool,
     ) -> PyResult<PyRef<'a, Self>> {
         slf.0.store(color_to_color_operation(
-            &*slf, &other, include_transparency, |_| 0, u8x4::saturating_add
+            &slf, &other, include_transparency, |_| 0, u8x4::saturating_add
         ), Ordering::Relaxed);
         Ok(slf)
     }
@@ -297,7 +307,7 @@ impl Color {
         include_transparency: bool
     ) -> PyResult<PyRef<'a, Self>> {
         let result: PyResult<u32> = color_to_unknown_operation(
-            py, &*slf, other, include_transparency,
+            py, &slf, other, include_transparency,
             |_| 0, f64x4::sub, u8x4::saturating_sub
         );
         slf.0.store(result?, Ordering::Relaxed);
@@ -307,7 +317,7 @@ impl Color {
     #[pyo3(signature = (scalar, include_transparency=false))]
     pub fn mul(slf: PyRef<'_, Self>, scalar: f64, include_transparency: bool) -> PyResult<PyRef<'_, Self>> {
         slf.0.store(
-            color_to_scalar_operation(&*slf, scalar, include_transparency, |_| 1, f64x4::mul),
+            color_to_scalar_operation(&slf, scalar, include_transparency, |_| 1, f64x4::mul),
             Ordering::Relaxed
         );
         Ok(slf)
@@ -323,7 +333,7 @@ impl Color {
             return Err(PyZeroDivisionError::new_err("Cannot divide a color by zero"))
         }
         slf.0.store(
-            color_to_scalar_operation(&*slf, scalar, include_transparency, |_| 1, f64x4::div),
+            color_to_scalar_operation(&slf, scalar, include_transparency, |_| 1, f64x4::div),
             Ordering::Relaxed
         );
         Ok(slf)
@@ -336,7 +346,7 @@ impl Color {
         include_transparency: bool
     ) -> PyRef<'a, Self> {
         slf.0.store(
-            color_to_color_operation(&*slf, &other, include_transparency, |_| 1, |a, b| {
+            color_to_color_operation(&slf, &other, include_transparency, |_| 1, |a, b| {
                 (a.cast() as f32x4).mul(b.cast() as f32x4).round()
                     .simd_max(f32x4::splat(0f32))
                     .simd_min(f32x4::splat(255f32)).cast() as u8x4
@@ -552,22 +562,11 @@ impl Color {
 
     pub fn get_luminance(&self) -> f64 {
         let rgba = to_decimal_rgba!(self);
-        let r = if rgba.0 <= 0.03928 {
-            rgba.0 / 12.92
-        } else {
-            ((rgba.0 + 0.055) / 1.055).powf(2.4)
-        };
-        let g = if rgba.1 <= 0.03928 {
-            rgba.1 / 12.92
-        } else {
-            ((rgba.1 + 0.055) / 1.055).powf(2.4)
-        };
-        let b = if rgba.2 <= 0.03928 {
-            rgba.2 / 12.92
-        } else {
-            ((rgba.2 + 0.055) / 1.055).powf(2.4)
-        };
-        0.2126 * r + 0.7152 * g + 0.0722 * b
+        let z1 = rgba / f64x4::splat(12.92);
+        let z2 = (rgba + f64x4::splat(0.055)) / f64x4::splat(1.055);
+        let mask = rgba.simd_lt(f64x4::splat(0.03928));
+        let result = mask.select(z1, z2);
+        0.2126 * result[0].powf(2.4) + 0.7152 * result[1].powf(2.4) + 0.0722 * result[2].powf(2.4)
     }
 
     pub fn get_saturation(&self) -> f32 {
@@ -634,61 +633,67 @@ impl Color {
 
     pub fn to_decimal_rgb(&self) -> (f64, f64, f64) {
         let result = to_decimal_rgba!(self);
-        (result.0, result.1, result.2)
+        (result[0], result[1], result[2])
     }
 
     pub fn to_decimal_rgba(&self) -> (f64, f64, f64, f64) {
-        to_decimal_rgba!(self)
+        let result = to_decimal_rgba!(self);
+        (result[0], result[1], result[2], result[3])
     }
 
     pub fn to_cmyk(&self) -> (f64, f64, f64, f64, f64) {
         let rgba = to_decimal_rgba!(*self);
-        let k = 1.0 - rgba.0.max(rgba.1).max(rgba.2);
+        let k = 1.0 - rgba.reduce_max();
         let k_invert = 1.0 - k;
 
         if k_invert == 0.0 {
-            return (0.0, 0.0, 0.0, 1.0, rgba.3);
+            return (0.0, 0.0, 0.0, 1.0, rgba[3]);
         }
-        let c = (k_invert - rgba.0) / k_invert;
-        let m = (k_invert - rgba.1) / k_invert;
-        let y = (k_invert - rgba.2) / k_invert;
-        (c, m, y, k, rgba.3)
+        let splat_invert_k = f64x4::splat(k_invert);
+        let cmy = (splat_invert_k - rgba) / splat_invert_k;
+        (cmy[0], cmy[1], cmy[2], k, rgba[3])
     }
 
     pub fn to_xyz(&self) -> (f64, f64, f64, f64) {
         let rgba = to_decimal_rgba!(*self);
+        let z1 = (rgba + f64x4::splat(0.055)) / f64x4::splat(1.055);
+        let z2 = rgba / f64x4::splat(12.92);
+        let mask = rgba.simd_gt(f64x4::splat(0.04045));
+        let result = mask.select(z1, z2) * f64x4::splat(100.0);
+        let red_weights = f64x4::from_array([
+            0.4124,
+            0.2126,
+            0.0193,
+            0.0
+        ]) * f64x4::splat(result[0].powf(2.4));
 
-        let r = if rgba.0 > 0.04045 {
-            ((rgba.0 + 0.055) / 1.055).powf(2.4)
-        } else {
-            rgba.0 / 12.92
-        };
-        let g = if rgba.1 > 0.04045 {
-            ((rgba.1 + 0.055) / 1.055).powf(2.4)
-        } else {
-            rgba.1 / 12.92
-        };
-        let b = if rgba.2 > 0.04045 {
-            ((rgba.2 + 0.055) / 1.055).powf(2.4)
-        } else {
-            rgba.2 / 12.92
-        };
+        let green_weights = f64x4::from_array([
+            0.3576,
+            0.7152,
+            0.1192,
+            0.0
+        ]) * f64x4::splat(result[1].powf(2.4));
 
-        let r = r * 100.0;
-        let g = g * 100.0;
-        let b = b * 100.0;
+        let blue_weights = f64x4::from_array([
+            0.1805,
+            0.0722,
+            0.9505,
+            0.0
+        ]) * f64x4::splat(result[1].powf(2.4));
+
+        let final_result = red_weights + green_weights + blue_weights;
 
         (
-            r * 0.4124 + g * 0.3576 + b * 0.1805,
-            r * 0.2126 + g * 0.7152 + b * 0.0722,
-            r * 0.0193 + g * 0.1192 + b * 0.9505,
-            rgba.3
+            final_result[0],
+            final_result[1],
+            final_result[2],
+            rgba[3]
         )
     }
 
     pub fn to_oklab(slf: PyRef<'_, Self>) -> (f64, f64, f64, f64) {
         let oklab = to_oklab!(slf);
-        (oklab.0, oklab.1, oklab.2, (extract_rgb_channel!(&slf, 3) as f64) / 255.0)
+        (oklab[0], oklab[1], oklab[2], (extract_rgb_channel!(&slf, 3) as f64) / 255.0)
     }
 
     pub fn to_lch(slf: PyRef<'_, Self>) -> (f64, f64, u16, f64) {
@@ -706,10 +711,10 @@ impl Color {
         PyList::new(
             python,
             vec![
-                rgba.0,
-                rgba.1,
-                rgba.2,
-                rgba.3
+                rgba[0],
+                rgba[1],
+                rgba[2],
+                rgba[3]
             ],
         )
     }
@@ -764,7 +769,7 @@ impl Color {
         if other <= 0 {
             return create_color!(0u32);
         }
-        let m = ((1u128 << 64) / other.abs() as u128) as u64 + 1;
+        let m = ((1u128 << 64) / other.unsigned_abs() as u128) as u64 + 1;
         let t = (self.0.load(Ordering::Relaxed) as u64).wrapping_mul(m);
         create_color!((t >> 32) as u32)
     }

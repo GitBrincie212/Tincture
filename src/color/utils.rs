@@ -7,13 +7,7 @@ use crate::color::Color;
 #[macro_export]
 macro_rules! to_decimal_rgba {
     ($color: expr) => {{
-        let channels = $color.0.load(Ordering::Relaxed).to_be_bytes();
-        (
-            ((channels[0] as f64) / 255.0),
-            ((channels[1] as f64) / 255.0),
-            ((channels[2] as f64) / 255.0),
-            ((channels[3] as f64) / 255.0)
-        )
+        f64x4::from_array(extract_rgba_channels_by_type!($color, f64, |x| x)) / f64x4::splat(255.0)
     }};
 }
 
@@ -28,19 +22,51 @@ macro_rules! interpret_to_hex {
 macro_rules! to_oklab {
     ($color: expr) => {{
         let rgba = to_decimal_rgba!($color);
-        let l: f64 = (0.4122_214_708 * &rgba.0) + (0.536_332_536 * &rgba.1) + (0.051_445_995 * &rgba.2);
-        let a: f64 = (0.211_903_5 * &rgba.0) + (0.680_699_5 * &rgba.1) + (0.107_396_96 * &rgba.2);
-        let b: f64 = (0.088_302_46 * rgba.0) + (0.281_718_85 * rgba.1) + (0.629_978_7 * rgba.2);
+        let red_weights = f64x4::from_array([
+            0.4122_214_708,
+            0.211_903_5,
+            0.088_302_46,
+            0.0
+        ]) * f64x4::splat(rgba[0]);
 
-        let l_sqrt_cube = l.cbrt();
-        let a_sqrt_cube = a.cbrt();
-        let b_sqrt_cube = b.cbrt();
+        let green_weights = f64x4::from_array([
+            0.536_332_536,
+            0.680_699_5,
+            0.281_718_85,
+            0.0
+        ]) * f64x4::splat(rgba[1]);
 
-        (
-            (0.210_454_26 * l_sqrt_cube) + (0.793_617_8 * a_sqrt_cube) - (0.004_072_047 * b_sqrt_cube),
-            (1.977_998_5 * l_sqrt_cube) - (2.428_592_2 * a_sqrt_cube) + (0.450_593_7 * b_sqrt_cube),
-            (0.025_904_037 * l_sqrt_cube) + (0.782_771_77 * a_sqrt_cube) - (0.808_675_77 * b_sqrt_cube),
-        )
+        let blue_weights = f64x4::from_array([
+            0.051_445_995,
+            0.107_396_96,
+            0.629_978_7,
+            0.0
+        ]) * f64x4::splat(rgba[2]);
+
+        let lab = red_weights + blue_weights + green_weights;
+
+        let l_weights = f64x4::from_array([
+            0.210_454_26,
+            1.977_998_5,
+            0.025_904_037,
+            0.0
+        ]) * f64x4::splat(lab[0].cbrt());
+
+        let a_weights = f64x4::from_array([
+            0.793_617_8,
+            2.428_592_2,
+            0.782_771_77,
+            0.0
+        ]) * f64x4::splat(lab[1].cbrt());
+
+        let b_weights = f64x4::from_array([
+            0.004_072_047,
+            0.450_593_7,
+            0.808_675_77,
+            0.0
+        ]) * f64x4::splat(lab[2].cbrt());
+
+        l_weights + a_weights + b_weights
     }};
 }
 
@@ -49,16 +75,16 @@ macro_rules! to_lch {
     ($color: expr) => {{
         let lab = to_oklab!($color);
 
-        let c = (lab.1.powf(2.0) + lab.2.powf(2.0)).sqrt();
+        let c = (lab[1].powf(2.0) + lab[2].powf(2.0)).sqrt();
 
-        let mut h = lab.1.atan2(lab.0);
+        let mut h = lab[1].atan2(lab[0]);
         h = if h > 0.0 {
             (h / PI) * 180.0
         } else {
             360.0 - (h.abs() / PI) * 180.0
         };
 
-        (lab.0, c, h.floor() as u16)
+        (lab[0], c, h.floor() as u16)
     }};
 }
 
@@ -67,19 +93,19 @@ macro_rules! calc_hue_saturation {
     ($color: expr) => {{
         let rgb = to_decimal_rgba!($color);
 
-        let c_max = rgb.0.max(rgb.1).max(rgb.2);
-        let c_min = rgb.0.min(rgb.1).min(rgb.2);
+        let c_max = f64x4::from_array([rgb[0], rgb[1], rgb[2], f64::MIN]).reduce_max();
+        let c_min = f64x4::from_array([rgb[0], rgb[1], rgb[2], f64::MAX]).reduce_min();
         let delta = c_max - c_min;
         let mut h = 0.0;
 
         if delta == 0.0 {
             h = 0.0
-        } else if c_max == rgb.0 {
-            h = ((rgb.1 - rgb.2) / delta) % 6.0;
-        } else if c_max == rgb.1 {
-            h = ((rgb.2 - rgb.0) / delta) + 2.0;
-        } else if c_max == rgb.2 {
-            h = ((rgb.0 - rgb.1) / delta) + 4.0;
+        } else if c_max == rgb[0] {
+            h = ((rgb[1] - rgb[2]) / delta) % 6.0;
+        } else if c_max == rgb[1] {
+            h = ((rgb[2] - rgb[0]) / delta) + 2.0;
+        } else if c_max == rgb[2] {
+            h = ((rgb[0] - rgb[1]) / delta) + 4.0;
         }
 
         h *= 60.0;
