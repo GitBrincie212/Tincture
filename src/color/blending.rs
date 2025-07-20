@@ -1,3 +1,5 @@
+use std::simd::{f64x4, Mask, StdFloat};
+use std::simd::prelude::{SimdFloat, SimdPartialOrd};
 use pyo3::pyclass;
 
 #[pyclass(eq, eq_int)]
@@ -16,7 +18,6 @@ pub enum BlendingMode {
     HardLight,
     VividLight,
     LinearLight,
-    PinLight,
     Difference,
     Exclusion,
     Divide,
@@ -25,155 +26,123 @@ pub enum BlendingMode {
     Average,
 }
 
-macro_rules! hardlight_and_overlay {
-    ($color1: expr, $color2: expr) => {{
-        if $color1.0 < 0.5 && $color1.1 < 0.5 && $color2.0 < 0.5 {
-            (
-                2.0 * $color1.0 * $color2.0,
-                2.0 * $color1.1 * $color2.1,
-                2.0 * $color1.2 * $color2.2,
-                $color1.3,
-            )
-        } else {
-            (
-                1.0 - (2.0 * (1.0 - $color1.0) * (1.0 - $color2.0)),
-                1.0 - (2.0 * (1.0 - $color1.1) * (1.0 - $color2.1)),
-                1.0 - (2.0 * (1.0 - $color1.2) * (1.0 - $color2.2)),
-                $color1.3,
-            )
-        }
+macro_rules! perform_alpha_composition {
+    ($blended_color: expr, $color1: expr, $color2: expr) => {{
+        let blended_alpha = $color1[3] + ($color2[3] * (1.0 - $color1[3]));
+        let color1_alpha = f64x4::splat($color1[3]);
+        let color2_alpha = f64x4::splat($color2[3]);
+        let rgb = (
+            $blended_color * color1_alpha + $color2 * color2_alpha * (f64x4::splat(1.0) - color1_alpha)
+        ) / f64x4::splat(blended_alpha);
+        f64x4::from_array([rgb[0], rgb[1], rgb[2], blended_alpha])
+    }};
+}
+
+macro_rules! hardlight_and_overlay_common {
+    ($condition: expr, $color1: expr, $color2: expr) => {{
+        let one = f64x4::splat(1.0);
+        let two = f64x4::splat(2.0);
+        let z1 = two * $color1 * $color2;
+        let z2 = one - two * (one - $color1) * (one - $color2);
+        let mask: Mask<i64, 4> = $condition.simd_lt(f64x4::splat(0.5));
+        mask.select(z1, z2)
     }};
 }
 
 pub(crate) fn compute_blend(
     blending_mode: &BlendingMode,
-    color1: (f64, f64, f64, f64),
-    color2: (f64, f64, f64, f64),
-) -> (f64, f64, f64, f64) {
+    color1: f64x4,
+    color2: f64x4,
+) -> f64x4 {
     match blending_mode {
-        BlendingMode::Darken => (
-            color1.0.min(color2.0),
-            color1.1.min(color2.1),
-            color1.2.min(color2.2),
-            color1.3,
-        ),
-        BlendingMode::Multiply => (
-            color1.0 * color2.0,
-            color1.1 * color2.1,
-            color1.2 * color2.2,
-            color1.3,
-        ),
-        BlendingMode::ColorBurn => (
-            (color1.0 + color2.0).max(1.0) - 1.0,
-            (color1.1 + color2.1).max(1.0) - 1.0,
-            (color1.2 + color2.2).max(1.0) - 1.0,
-            color1.3,
-        ),
-        BlendingMode::LinearBurn => (
-            1.0 - ((1.0 - color1.0) / color2.0),
-            1.0 - ((1.0 - color1.1) / color2.1),
-            1.0 - ((1.0 - color1.2) / color2.2),
-            color1.3,
-        ),
-        BlendingMode::Lighten => (
-            color1.0.max(color2.0),
-            color1.1.max(color2.1),
-            color1.2.max(color2.2),
-            color1.3,
-        ),
-        BlendingMode::Screen => (
-            1.0 - ((1.0 - color1.0) * (1.0 - color2.0)),
-            1.0 - ((1.0 - color1.1) * (1.0 - color2.1)),
-            1.0 - ((1.0 - color1.2) * (1.0 - color2.2)),
-            color1.3,
-        ),
-        BlendingMode::LinearDodge => (
-            color1.0 + color2.0,
-            color1.1 + color2.1,
-            color1.2 + color2.2,
-            color1.3,
-        ),
-        BlendingMode::ColorDodge => (
-            color2.0 / (1.0 - color1.0),
-            color2.1 / (1.0 - color1.1),
-            color2.2 / (1.0 - color1.2),
-            color1.3,
-        ),
-        BlendingMode::HardLight => hardlight_and_overlay!(color1, color2),
-        BlendingMode::Overlay => hardlight_and_overlay!(
-            (color2.0, color2.1, color2.2, color1.3),
-            (color1.0, color1.1, color1.2)
-        ),
+        BlendingMode::Darken => {
+            let val = color1.simd_min(color2);
+            perform_alpha_composition!(val, color1, color2)
+        },
+        BlendingMode::Multiply => {
+            let val = color1 * color2;
+            perform_alpha_composition!(val, color1, color2)
+        },
+        BlendingMode::ColorBurn => {
+            let val = (color1 + color2).simd_max(f64x4::splat(1.0)) - f64x4::splat(1.0);
+            perform_alpha_composition!(val, color1, color2)
+        },
+        BlendingMode::LinearBurn => {
+            let val = f64x4::splat(1.0) - (f64x4::splat(1.0) - color1 / color2);
+            perform_alpha_composition!(val, color1, color2)
+        },
+        BlendingMode::Lighten => {
+            let val = color1.simd_max(color2);
+            perform_alpha_composition!(val, color1, color2)
+        },
+        BlendingMode::Screen => {
+            let one = f64x4::splat(1.0);
+            let val = one - ((one - color1) * (one - color2));
+            perform_alpha_composition!(val, color1, color2)
+        },
+        BlendingMode::LinearDodge => {
+            let val = color1 + color2;
+            perform_alpha_composition!(val, color1, color2)
+        },
+        BlendingMode::ColorDodge => {
+            let val = color2 / (f64x4::splat(1.0) - color1);
+            perform_alpha_composition!(val, color1, color2)
+        },
+        BlendingMode::HardLight => {
+            let val = hardlight_and_overlay_common!(color1, color1, color2);
+            perform_alpha_composition!(val, color1, color2)
+        },
+        BlendingMode::Overlay => {
+            let val = hardlight_and_overlay_common!(color2, color1, color2);
+            perform_alpha_composition!(val, color1, color2)
+        },
         BlendingMode::SoftLight => {
-            if color1.0 < 0.5 && color1.1 < 0.5 && color2.0 < 0.5 {
-                (
-                    (1.0 - 2.0 * color1.0) * (color2.0.powi(2)) + 2.0 * color2.0 * color1.0,
-                    (1.0 - 2.0 * color1.1) * (color2.1.powi(2)) + 2.0 * color2.1 * color1.1,
-                    (1.0 - 2.0 * color1.2) * (color2.2.powi(2)) + 2.0 * color2.2 * color1.2,
-                    color1.3,
-                )
-            } else {
-                (
-                    2.0 * color2.0 * (1.0 - color2.0) + color2.0.sqrt() * (2.0 * color1.0 - 1.0),
-                    2.0 * color2.1 * (1.0 - color2.1) + color2.1.sqrt() * (2.0 * color1.1 - 1.0),
-                    2.0 * color2.2 * (1.0 - color2.2) + color2.2.sqrt() * (2.0 * color1.2 - 1.0),
-                    color1.3,
-                )
-            }
+            let one = f64x4::splat(1.0);
+            let two = f64x4::splat(2.0);
+            let z1 = one - two * (one - color1) * (one - color2) + two * color2 * color1;
+            let z2 = two * color2 * (one - color2) + color2.sqrt() * (two * color1 - one);
+            let mask: Mask<i64, 4> = color1.simd_lt(f64x4::splat(0.5));
+            perform_alpha_composition!(mask.select(z1, z2), color1, color2)
         }
         BlendingMode::VividLight => {
-            if color1.0 < 0.5 && color1.1 < 0.5 && color2.0 < 0.5 {
-                (
-                    1.0 - (1.0 - color2.0) / (2.0 * color1.0),
-                    1.0 - (1.0 - color2.1) / (2.0 * color1.1),
-                    1.0 - (1.0 - color2.2) / (2.0 * color1.2),
-                    color1.3,
-                )
-            } else {
-                (
-                    color2.0 / (2.0 * (1.0 - color1.0)),
-                    color2.1 / (2.0 * (1.0 - color1.1)),
-                    color2.2 / (2.0 * (1.0 - color1.2)),
-                    color1.3,
-                )
-            }
+            let one = f64x4::splat(1.0);
+            let two = f64x4::splat(2.0);
+            let z1 = one - (one - color2) / (two * color1);
+            let z2 = color2 / (two * (one - color1));
+            let mask: Mask<i64, 4> = color1.simd_lt(f64x4::splat(0.5));
+            perform_alpha_composition!(mask.select(z1, z2), color1, color2)
         }
-        BlendingMode::Average => (
-            (color1.0 + color2.0) / 2.0,
-            (color1.1 + color2.1) / 2.0,
-            (color1.2 + color2.2) / 2.0,
-            color1.3,
-        ),
-        BlendingMode::Exclusion => (
-            color1.0 + color2.0 - 2.0 * (color1.0 * color2.0),
-            color1.1 + color2.1 - 2.0 * (color1.1 * color2.1),
-            color1.2 + color2.2 - 2.0 * (color1.2 * color2.2),
-            color1.3,
-        ),
-        BlendingMode::Difference => (
-            (color2.0 - color1.0).abs(),
-            (color2.1 - color1.1).abs(),
-            (color2.2 - color1.2).abs(),
-            color1.3,
-        ),
-        BlendingMode::Divide => (
-            color2.0 / color1.0,
-            color2.1 / color1.1,
-            color2.2 / color1.2,
-            color1.3,
-        ),
-        BlendingMode::Subtract => (
-            color2.0 - color1.0,
-            color2.1 - color1.1,
-            color2.2 - color1.2,
-            color1.3,
-        ),
+        BlendingMode::Average => {
+            let value = (color1 + color2) / f64x4::splat(2.0);
+            perform_alpha_composition!(value, color1, color2)
+        },
+        BlendingMode::Exclusion => {
+            let value = color1 + color2 - f64x4::splat(2.0) * (color1 * color2);
+            perform_alpha_composition!(value, color1, color2)
+        },
+        BlendingMode::Difference => {
+            let value = (color2 - color1).abs();
+            perform_alpha_composition!(value, color1, color2)
+        },
+        BlendingMode::Divide => {
+            let value = color2 / color1;
+            perform_alpha_composition!(value, color1, color2)
+        },
+        BlendingMode::Subtract => {
+            let value = color2 - color1;
+            perform_alpha_composition!(value, color1, color2)
+        },
 
-        /*
-        BlendingMode::LinearLight => {}
-        BlendingMode::PinLight => {}
-        BlendingMode::Luminosity => {}
-         */
-        _ => (0.0, 0.0, 0.0, 0.0),
+        BlendingMode::LinearLight => {
+            let value = color2 + (f64x4::splat(2.0) * color1) - f64x4::splat(1.0);
+            perform_alpha_composition!(value, color1, color2)
+        },
+
+        BlendingMode::Luminosity => {
+            let weights: f64x4 = f64x4::from_array([0.00117255, 0.00230196, 0.00044706, 0.0]);
+            let prod = (color1 - color2) * weights;
+            let gray = f64x4::splat(prod[0] + prod[1] + prod[2]);
+            perform_alpha_composition!(gray + color2, color1, color2)
+        }
     }
 }
