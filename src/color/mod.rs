@@ -356,8 +356,26 @@ impl Color {
         slf
     }
 
+    #[pyo3(signature = (include_transparency=false))]
+    pub fn sqrt<'a>(
+        slf: PyRef<'a, Self>,
+        include_transparency: bool,
+    ) -> PyResult<PyRef<'a, Self>> {
+        let channels = f64x4::from_array(extract_rgba_channels_by_type!(slf, f64, |v| v))
+            .sqrt()
+            .simd_clamp(f64x4::splat(0.0), f64x4::splat(255.0))
+            .round();
+        slf.0.store(u32::from_be_bytes([
+            channels[0] as u8,
+            channels[1] as u8,
+            channels[2] as u8,
+            if include_transparency {channels[3] as u8} else {slf.0.load(Ordering::Relaxed) as u8}
+        ]), Ordering::Relaxed);
+        Ok(slf)
+    }
+
     #[pyo3(signature = (base, include_transparency=false))]
-    pub fn base_sqrt<'a>(
+    pub fn nth_root<'a>(
         slf: PyRef<'a, Self>,
         base: isize,
         include_transparency: bool,
@@ -365,13 +383,13 @@ impl Color {
         if base <= 1 {
             return Err(PyValueError::new_err("Square root base has to be above 1"));
         }
-        let float_base: f32 = 1.0 / (base as f32);
+        let float_base: f64 = 1.0 / (base as f64);
         let channels = slf.0.load(Ordering::Relaxed).to_be_bytes();
-        let r = (channels[0] as f32).powf(float_base).clamp(0.0, 255.0).floor() as u8;
-        let g = (channels[1] as f32).powf(float_base).clamp(0.0, 255.0).floor() as u8;
-        let b = (channels[2] as f32).powf(float_base).clamp(0.0, 255.0).floor() as u8;
+        let r = (channels[0] as f64).powf(float_base).clamp(0.0, 255.0).floor() as u8;
+        let g = (channels[1] as f64).powf(float_base).clamp(0.0, 255.0).floor() as u8;
+        let b = (channels[2] as f64).powf(float_base).clamp(0.0, 255.0).floor() as u8;
         let a = if include_transparency {
-            (channels[3] as f32).powf(float_base).clamp(0.0, 255.0).floor() as u8
+            (channels[3] as f64).powf(float_base).clamp(0.0, 255.0).floor() as u8
         } else {channels[3]};
         slf.0.store(u32::from_be_bytes([r, g, b, a]), Ordering::Relaxed);
         Ok(slf)

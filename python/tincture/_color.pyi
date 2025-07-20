@@ -315,14 +315,31 @@ class Color:
         """
         ...
 
-    def base_sqrt(self, base: int, include_transparency: bool = False) -> "Color":
+    def sqrt(self, include_transparency: bool = False) -> "Color":
         """
-        Performs an n-th root operation between this color and another color, then it returns
-        a new color value. The RGB values are clamped to the range of 0.0 and 255.0 (including both),
-        The base of the square root has to be above 1 otherwise an error will be thrown. You can opt in
-        if you want to include the alpha channel as well
+        Performs a square root operation on this color, modifying it then returning the self color value.
+        The RGB values are clamped to the range of 0.0 and 255.0 (including both),
+        You can opt in if you want to include the alpha channel as well
+
+        **Note:** in case where you want to square root, this is more optimal than using ``Color.nth_root(2)``
 
         :param base: The square root base
+        :param include_transparency : Performs the operation in addition to the alpha channel when set to true;
+        By default, it is set to be false
+        """
+        ...
+
+
+    def nth_root(self, base: int, include_transparency: bool = False) -> "Color":
+        """
+        Performs an n-th root operation on this color with a specific base, modifying it and then returning
+        the self color value. The RGB values are clamped to the range of 0.0 and 255.0 (including both),
+        The base of the n-th root has to be above 1 otherwise an error will be thrown. You can opt in
+        if you want to include the alpha channel as well
+        
+        **Note:** in case where you want to square root, it is more optimal to use ``Color.sqrt()`` than this method
+
+        :param base: The n-th root base
         :param include_transparency : Performs the operation in addition to the alpha channel when set to true;
         By default, it is set to be false
         """
