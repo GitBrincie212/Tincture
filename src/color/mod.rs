@@ -397,12 +397,16 @@ impl Color {
 
     #[pyo3(signature = (other, include_transparency=false))]
     pub fn max(&self, other: Self, include_transparency: bool) -> Self {
-        create_color!(unpack_rgba!(self, include_transparency).max(unpack_rgba!(other, include_transparency)))
+        let color1 = u8x4::from_array(unpack_rgba!(self, include_transparency).to_be_bytes());
+        let color2 = u8x4::from_array(unpack_rgba!(other, include_transparency).to_be_bytes());
+        create_color!(u32::from_be_bytes(color1.max(color2).to_array()))
     }
 
     #[pyo3(signature = (other, include_transparency=false))]
     pub fn min(&self, other: Self, include_transparency: bool) -> Self {
-        create_color!(unpack_rgba!(self, include_transparency).min(unpack_rgba!(other, include_transparency)))
+        let color1 = u8x4::from_array(unpack_rgba!(self, include_transparency).to_be_bytes());
+        let color2 = u8x4::from_array(unpack_rgba!(other, include_transparency).to_be_bytes());
+        create_color!(u32::from_be_bytes(color1.min(color2).to_array()))
     }
 
     #[pyo3(signature = (include_transparency=false))]
