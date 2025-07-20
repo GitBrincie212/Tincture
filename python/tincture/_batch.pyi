@@ -2,7 +2,7 @@ from tincture import Color
 
 
 class ColorBatch:
-    def __init__(self, *args: tuple[Color]) -> None:
+    def __init__(self, colors: list[Color]) -> None:
         """
         A ColorBatch is a stream of colors which is used when a developer wants to operate on many colors simultaneously
         at lightning speed. As opposed to single-color operations where they execute the instruction immediately and return
@@ -14,7 +14,7 @@ class ColorBatch:
         non-atomic integer representation of the color. This means checking via ``a is b`` will **ALWAYS** return
         false
 
-        :param args: The colors to compose the batch
+        :param colors: The colors to compose the batch
         """
         ...
 
@@ -36,119 +36,86 @@ class ColorBatch:
         """
         ...
 
-    def add(self, *args: tuple["Color"]) -> "ColorBatch":
+    def add(self, colors: list["Color"]) -> "ColorBatch":
         """
         Creates an instruction for adding multiple colors to this specific batch. Returning
         the self ColorBatch instance (for continuous operations)
 
-        :param args: The colors to add to the current batch
+        :param colors: The colors to add to the current batch
         :return: Returns the self color batch that was called on the method
         """
         ...
 
-    def sub(self, *args: tuple["Color"]) -> "ColorBatch":
+    def sub(self, colors: list["Color"]) -> "ColorBatch":
         """
         Creates an instruction for subtracting multiple colors to this specific batch. Returning
         the self ColorBatch instance (for continuous operations)
 
-        :param args: The colors to add to the current batch
+        :param colors: The colors to add to the current batch
         :return: Returns the self color batch that was called on the method
         """
         ...
 
-    def mul(self, *args: tuple["Color"]) -> "ColorBatch":
+    def mul(self, colors: list["Color"]) -> "ColorBatch":
         """
         Creates an instruction for multiplying multiple colors to this specific batch. Returning
         the self ColorBatch instance (for continuous operations)
 
-        :param args: The colors to multiply to the current batch
+        :param colors: The colors to multiply to the current batch
         :return: Returns the self color batch that was called on the method
         """
         ...
 
-    def add_batches(self, *args: tuple["ColorBatch"]) -> "ColorBatch":
-        """
-        Creates an instruction for adding multiple ColorBatches to this specific batch. Returning
-        the self ColorBatch instance (for continuous operations), these color batches may have instructions
-        mounted to them as well (which will be executed before the main addition operation)
-
-        :param args: The color batches to add to the current batch
-        :return: Returns the self color batch that was called on the method
-        """
-        ...
-
-    def sub_batches(self, *args: tuple["ColorBatch"]) -> "ColorBatch":
-        """
-        Creates an instruction for substraction multiple ColorBatches to this specific batch. Returning
-        the self ColorBatch instance (for continuous operations), these color batches may have instructions
-        mounted to them as well (which will be executed before the main subtraction operation)
-
-        :param args: The color batches to subtract off the current batch
-        :return: Returns the self color batch that was called on the method
-        """
-        ...
-
-    def tensor(self, *args: tuple["ColorBatch"]) -> "ColorBatch":
-        """
-        Creates an instruction for substraction getting the tensor product between the ColorBatches and this specific batch.
-        Returning the self ColorBatch instance (for continuous operations), these color batches may have instructions
-        mounted to them as well (which will be executed before the main tensor operation)
-
-        :param args: The color batches to get the tensor product with the current batch
-        :return: Returns the self color batch that was called on the method
-        """
-        ...
-
-    def scalar_add(self, *args: tuple[float], include_transparency: bool = True) -> "ColorBatch":
+    def add_scalar(self, scalars: list[float], include_transparency: bool = True) -> "ColorBatch":
         """
         Creates an instruction for adding multiple scalars to this specific batch. Returning
         the self ColorBatch instance (for continuous operations)
 
-        :param args: The scalars to multiply with the current batch
+        :param scalars: The scalars to multiply with the current batch
         :param include_transparency: Whenever or not to operate on the alpha channel as well
         :return: Returns the self color batch that was called on the method
         """
         ...
 
-    def scalar_sub(self, *args: tuple[float], include_transparency: bool = True) -> "ColorBatch":
+    def sub_scalar(self, scalars: list[float], include_transparency: bool = True) -> "ColorBatch":
         """
         Creates an instruction for subtracting multiple scalars to this specific batch. Returning
         the self ColorBatch instance (for continuous operations)
 
-        :param args: The scalars to multiply with the current batch
+        :param scalars: The scalars to multiply with the current batch
         :param include_transparency: Whenever or not to operate on the alpha channel as well
         :return: Returns the self color batch that was called on the method
         """
         ...
 
-    def scalar_mul(self, *args: tuple[float], include_transparency: bool = True) -> "ColorBatch":
+    def mul_scalar(self, scalars: list[float], include_transparency: bool = True) -> "ColorBatch":
         """
         Creates an instruction for multiplying multiple scalars to this specific batch. Returning
         the self ColorBatch instance (for continuous operations)
 
-        :param args: The scalars to multiply with the current batch
+        :param scalars: The scalars to multiply with the current batch
         :param include_transparency: Whenever or not to operate on the alpha channel as well
         :return: Returns the self color batch that was called on the method
         """
         ...
 
-    def scalar_div(self, *args: tuple[float], include_transparency: bool = True) -> "ColorBatch":
+    def div_scalar(self, scalars: list[float], include_transparency: bool = True) -> "ColorBatch":
         """
         Creates an instruction for dividing multiple scalars to this specific batch. Returning
         the self ColorBatch instance (for continuous operations)
 
-        :param args: The scalars to multiply with the current batch
+        :param scalars: The scalars to multiply with the current batch
         :param include_transparency: Whenever or not to operate on the alpha channel as well
         :return: Returns the self color batch that was called on the method
         """
         ...
 
-    def nth_root(self, *args: tuple[float], include_transparency: bool = True) -> "ColorBatch":
+    def nth_root_scalar(self, scalars: list[float], include_transparency: bool = True) -> "ColorBatch":
         """
         Creates an instruction for taking the nth root of multiple scalars from this specific batch. Returning
         the self ColorBatch instance (for continuous operations)
 
-        :param args: The scalars to take the nth root off the current batch
+        :param scalars: The scalars to take the nth root off the current batch
         :param include_transparency: Whenever or not to operate on the alpha channel as well
         :return: Returns the self color batch that was called on the method
         """
