@@ -13,6 +13,8 @@ brightness of a color... etc. It also has a wide range of color space conversati
 to a color object or vice versa. Tincture is also masterfully crafted to be optimised for heavy computations as shown in
 this benchmark graph, (lightning speed computations can be achieved with the **Tincture Batch-API**)
 ![Benchmark Graph](assets/benchmark.png)
+![Benchmark Log Graph](assets/benchmark_log.png)
+
 
 ---
 All the documentation in tincture is written in docstrings. But Here are some examples of using tincture to get you
