@@ -904,10 +904,10 @@ impl Color {
     }
 
     pub fn __copy__(&self) -> Color {
-        self.copy()
+        self.clone()
     }
 
     pub fn __sizeof__(&self) -> usize {
-        32
+        size_of_val(self)
     }
 }
