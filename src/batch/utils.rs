@@ -31,12 +31,12 @@ macro_rules! color_to_packed {
 
 #[macro_export]
 macro_rules! handle_lower_operation {
-    ($self_lanes: expr, $other: expr, $operation: tt) => {
+    ($self_lanes: expr, $other: expr, $operation: ident) => {
         $self_lanes
             .par_iter_mut()
             .for_each(|lane| {
                 for src in &$other {
-                    *lane $operation *src;
+                    *lane = lane.$operation(*src);
                 }
             });
     };
