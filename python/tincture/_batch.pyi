@@ -10,6 +10,10 @@ class ColorBatch:
         when provoked via a ``ColorBatch.operate()``, that is when they execute all the instructions and return the result,
         the execution of colors is done in parallel
 
+        **Note:** For performance reasons, ColorBatch doesn't store the underlying PyObject but rather the
+        non-atomic integer representation of the color. This means checking via ``a is b`` will **ALWAYS** return
+        false
+
         :param args: The colors to compose the batch
         """
         ...
