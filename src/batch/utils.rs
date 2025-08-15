@@ -4,12 +4,12 @@ macro_rules! scalar_to_packed {
         $scalars
             .par_iter()
             .map(|x| {
-                f64x4::from_array([
+                AutoF32x4::new(
                     *x,
                     *x,
                     *x,
                     $identity_fn(x)
-                ])
+                )
             })
             .collect()
     }};
@@ -20,11 +20,7 @@ macro_rules! color_to_packed {
     ($colors: expr, $identity_fn: expr) => {{
         $colors.as_slice()
             .par_iter()
-            .map(|x| {
-                f64x4::from_array(
-                    extract_rgba_channels_by_type!(x, f64, $identity_fn)
-                )
-            })
+            .map(|x| AutoF32x4::from(extract_rgba_channels_by_type!(x, f32, $identity_fn)))
             .collect()
     }};
 }
