@@ -383,9 +383,36 @@ class Color:
 
     def triadic_colors(self) -> list["Color"]:
         """
-        Gets the two triadic colors based on this color, the tetradic colors have a difference of hue 120 degrees
+        Gets the two other triadic colors based on this color, the tetradic colors have a difference of hue 120 degrees
         from the color used in this operation; it uses the HSL color space to do this specific operation which sometimes
         (very rarely) may not be accurate
+        """
+        ...
+
+    def complementary_color(self) -> list["Color"]:
+        """
+        Gets the complementary color based on this color, the complementary color have a difference of hue 180 degrees
+        from the color used in this operation; it uses the HSL color space to do this specific operation which sometimes
+        (very rarely) may not be accurate
+        """
+        ...
+
+    def tetradic_color(self) -> list["Color"]:
+        """
+        Gets the three other tetradic colors based on this color, the tetradic colors have a difference of hue 90 degrees
+        from the color used in this operation; it uses the HSL color space to do this specific operation which sometimes
+        (very rarely) may not be accurate
+        """
+        ...
+
+    def alpha_composite(self, other: "Color") -> "Color":
+        """
+        Performs alpha compositing, where it produces a new color based on the alpha blending between this color and the other
+        color. For fully opaque colors, it does nothing. ``Color.blend(...)`` does this automatically under the hood. The
+        other color acts as the background while this color acts as the foreground
+
+        :param other: The other color to alpha blend with
+        :return: The result of the alpha blend between this color and the other one
         """
         ...
 
@@ -401,6 +428,16 @@ class Color:
         Adjusts the contrast of the color, the factor value is a percentage value and can range from [-1, 1] where
         negative numbers decrease the contrast and make the color grayer. Positive values add more contrast, and when
         the factor is equal to zero, it has no influence
+        """
+        ...
+
+    def contrast_ratio(self, background: "Color") -> float:
+        """
+        Computes and returns the contrast ratio between this color and the background color.
+        This implementation uses WCAG formula and uses internally the method ``Color.get_luminance()``
+
+        :param background: The background color to compute the contrast ratio with
+        :return: The computed WCAG contrast ratio from this color and the background color
         """
         ...
 
@@ -424,6 +461,30 @@ class Color:
         then back to RGB color space so it can be a bit expensive sometimes
 
         :param degrees: The degree offset for the hue
+        """
+        ...
+
+    def clamp(self, min: int, max: int) -> "Color":
+        """
+        Clamps the color's fields within the bounds of the supplied minimum and maximum value.
+        In the case where you want to clamp by color, it is recommended to use ``Color.clamp_by_color(...)``
+
+
+        :param min: The minimum scalar value to clamp the color to
+        :param max: The maximum scalar value to clamp the color to
+        :return: The result of clamping the color with the minimum value and the maximum value
+        """
+        ...
+
+    def clamp_by_color(self, min: "Color", max: "Color") -> "Color":
+        """
+        Clamps the color's fields within the bounds of the supplied minimum and maximum value.
+        In the case where you want to clamp by a scalar, it is recommended to use ``Color.clamp(...)``
+
+
+        :param min: The minimum color value to clamp the color to
+        :param max: The maximum color value to clamp the color to
+        :return: The result of clamping the color with the minimum value and the maximum value
         """
         ...
 

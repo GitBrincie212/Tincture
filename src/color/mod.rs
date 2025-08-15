@@ -1,4 +1,4 @@
-use crate::clerp_impl;
+use crate::{clerp_impl, extract_rgba_channels};
 use std::ops::Rem;
 use crate::color::simd_casts::{f32x4_to_u32, u8x4_to_f32x4, u8x4_to_u32};
 use simba::simd::{AutoUsizex4, AutoU8x4, AutoF32x4, SimdPartialOrd, SimdValue, SimdComplexField, SimdBool};
@@ -460,7 +460,7 @@ impl Color {
         slf
     }
 
-    pub fn triadic_colors(&self) -> [Color; 2] {
+    pub fn triadic_colors(&self) -> [Self; 2] {
         let results = self.to_hsl();
         let hue_one: i16 = (results.0 + 120).rem_euclid(360) as i16;
         let hue_two: i16 = ((results.0 as i16) - 120).rem_euclid(360);
@@ -468,6 +468,24 @@ impl Color {
             Color::from_hsl(hue_one, results.1, results.2, results.3).unwrap(),
             Color::from_hsl(hue_two, results.1, results.2, results.3).unwrap(),
         ]
+    }
+
+    pub fn tetradic_colors(&self) -> [Self; 3] {
+        let results = self.to_hsl();
+        let hue_one: i16 = (results.0 + 90).rem_euclid(360) as i16;
+        let hue_two: i16 = ((results.0 as i16) - 90).rem_euclid(360);
+        let hue_three: i16 = ((results.0 as i16) + 180).rem_euclid(360);
+        [
+            Color::from_hsl(hue_one, results.1, results.2, results.3).unwrap(),
+            Color::from_hsl(hue_two, results.1, results.2, results.3).unwrap(),
+            Color::from_hsl(hue_three, results.1, results.2, results.3).unwrap(),
+        ]
+    }
+
+    pub fn complementary_color(&self) -> Self {
+        let results = self.to_hsl();
+        let hue_one: i16 = (results.0 + 180).rem_euclid(360) as i16;
+        Color::from_hsl(hue_one, results.1, results.2, results.3).unwrap()
     }
 
     pub fn adjust_temperature(slf: PyRef<'_, Self>, temperature: isize) -> PyRef<'_, Self> {
@@ -509,6 +527,12 @@ impl Color {
             channels[3]
         ]), Ordering::Relaxed);
         slf
+    }
+
+    pub fn contrast_ratio(&self, background: PyRef<'_, Self>) -> f32 {
+        let self_luminance = self.get_luminance();
+        let background_luminance = background.get_luminance();
+        (self_luminance.max(background_luminance) + 0.05) / (self_luminance.min(background_luminance) + 0.05)
     }
 
     pub fn brightness(slf: PyRef<'_, Self>, factor: f32) -> PyRef<'_, Self> {
@@ -647,8 +671,70 @@ impl Color {
             && alpha_part
     }
 
-    pub fn copy(&self) -> Color {
+    pub fn copy(&self) -> Self {
         self.clone()
+    }
+
+
+    #[pyo3(signature = (min, max, include_transparency=false))]
+    pub fn clamp(&self, min: u8, max: u8, include_transparency: bool) -> Self {
+        let min_u8x4 = AutoU8x4::new(
+            min,
+            min,
+            min,
+            if include_transparency {min} else {extract_rgb_channel!(self, 3)}
+        );
+
+        let max_u8x4 = AutoU8x4::new(
+            min,
+            min,
+            min,
+            if include_transparency {max} else {extract_rgb_channel!(self, 3)}
+        );
+
+        create_color!(
+            u8x4_to_u32(
+                AutoU8x4::from(self.0.load(Ordering::Relaxed).to_be_bytes())
+                    .simd_clamp(min_u8x4, max_u8x4)
+            )
+        )
+    }
+
+    pub fn clamp_by_color(&self, min: PyRef<'_, Self>, max: PyRef<'_, Self>, include_transparency: bool) -> Self {
+        let min_u8x4 = AutoU8x4::from(
+            extract_rgba_channels!(min, include_transparency, |_| extract_rgb_channel!(self, 3))
+        );
+
+        let max_u8x4 = AutoU8x4::from(
+            extract_rgba_channels!(max, include_transparency, |_| extract_rgb_channel!(self, 3))
+        );
+
+
+        create_color!(
+            u8x4_to_u32(
+                AutoU8x4::from(self.0.load(Ordering::Relaxed).to_be_bytes())
+                    .simd_clamp(min_u8x4, max_u8x4)
+            )
+        )
+    }
+
+    pub fn alpha_composite(&self, other: PyRef<'_, Self>) -> Self {
+        let decimal_self = to_decimal_rgba!(self);
+        let decimal_other = to_decimal_rgba!(other);
+        let self_alpha = decimal_self.0[3];
+        let other_alpha = decimal_other.0[3];
+        let coefficient = other_alpha * (1f32 - self_alpha);
+        let result_alpha = self_alpha + coefficient;
+        create_color!(
+            f32x4_to_u32(
+                decimal_self
+                    .add(AutoF32x4::splat(self_alpha))
+                    .add(decimal_other.add(AutoF32x4::splat(coefficient)))
+                    .div(AutoF32x4::splat(result_alpha))
+                    .simd_round()
+                    .simd_clamp(AutoF32x4::splat(0f32), AutoF32x4::splat(255f32))
+            )
+        )
     }
 
     #[pyo3(signature = (include_transparency=false))]
