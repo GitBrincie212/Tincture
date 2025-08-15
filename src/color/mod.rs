@@ -677,7 +677,11 @@ impl Color {
 
 
     #[pyo3(signature = (min, max, include_transparency=false))]
-    pub fn clamp(&self, min: u8, max: u8, include_transparency: bool) -> Self {
+    pub fn clamp(&self, min: u8, max: u8, include_transparency: bool) -> PyResult<Self> {
+        if min > max {
+            return Err(PyValueError::new_err("The supplied min argument is greater than the supplied max argument"))
+        }
+
         let min_u8x4 = AutoU8x4::new(
             min,
             min,
@@ -692,15 +696,15 @@ impl Color {
             if include_transparency {max} else {extract_rgb_channel!(self, 3)}
         );
 
-        create_color!(
+        Ok(create_color!(
             u8x4_to_u32(
                 AutoU8x4::from(self.0.load(Ordering::Relaxed).to_be_bytes())
                     .simd_clamp(min_u8x4, max_u8x4)
             )
-        )
+        ))
     }
 
-    pub fn clamp_by_color(&self, min: PyRef<'_, Self>, max: PyRef<'_, Self>, include_transparency: bool) -> Self {
+    pub fn clamp_by_color(&self, min: PyRef<'_, Self>, max: PyRef<'_, Self>, include_transparency: bool) -> PyResult<Self> {
         let min_u8x4 = AutoU8x4::from(
             extract_rgba_channels!(min, include_transparency, |_| extract_rgb_channel!(self, 3))
         );
@@ -709,13 +713,23 @@ impl Color {
             extract_rgba_channels!(max, include_transparency, |_| extract_rgb_channel!(self, 3))
         );
 
+        if min_u8x4.0[0] > max_u8x4.0[0] {
+            return Err(PyValueError::new_err("The supplied min color argument is greater than the supplied max color argument in the red field"))
+        } else if min_u8x4.0[1] > max_u8x4.0[1] {
+            return Err(PyValueError::new_err("The supplied min color argument is greater than the supplied max color argument in the green field"))
+        } else if min_u8x4.0[2] > max_u8x4.0[2] {
+            return Err(PyValueError::new_err("The supplied min color argument is greater than the supplied max color argument in the blue field"))
+        } else if min_u8x4.0[0] > max_u8x4.0[0] && include_transparency {
+            return Err(PyValueError::new_err("The supplied min color argument is greater than the supplied max color argument in the alpha field"))
+        }
 
-        create_color!(
+
+        Ok(create_color!(
             u8x4_to_u32(
                 AutoU8x4::from(self.0.load(Ordering::Relaxed).to_be_bytes())
                     .simd_clamp(min_u8x4, max_u8x4)
             )
-        )
+        ))
     }
 
     pub fn alpha_composite(&self, other: PyRef<'_, Self>) -> Self {
