@@ -1,14 +1,14 @@
-use std::simd::{f64x4, StdFloat};
-use std::simd::num::SimdUint;
-use std::simd::{u8x4, f32x4};
+use crate::clerp_impl;
+use std::ops::Rem;
+use crate::color::simd_casts::{f32x4_to_u32, u8x4_to_f32x4, u8x4_to_u32};
+use simba::simd::{AutoUsizex4, AutoU8x4, AutoF32x4, SimdPartialOrd, SimdValue, SimdComplexField, SimdBool};
 use pyo3::exceptions::{PyIndexError, PyValueError, PyZeroDivisionError};
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyTuple};
-use std::f64::consts::PI;
+use std::f32::consts::PI as f32_PI;
 use std::ffi::c_uint;
 use std::hash::{Hash, Hasher};
-use std::ops::{Add, Div, Mul, Sub};
-use std::simd::prelude::{SimdFloat, SimdPartialOrd};
+use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::sync::{LazyLock, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
 use pyo3::impl_::callback::IntoPyCallbackOutput;
@@ -16,14 +16,16 @@ use rand::prelude::SmallRng;
 use rand::{RngCore, SeedableRng};
 use crate::{approx_equal_field, create_color, calc_hue_saturation, find_invalid_range};
 use crate::{extract_rgb_channel, extract_rgba_channels_by_type};
-use crate::{shift_impl, to_decimal_rgba, to_lch, to_oklab, to_unit_rgba, unpack_rgba, to_hsv, clerp_impl, interpret_to_hex};
+use crate::{shift_impl, to_decimal_rgba, to_lch, to_oklab, to_unit_rgba, unpack_rgba, to_hsv, interpret_to_hex};
 use crate::color::utils::{color_to_color_operation, color_to_scalar_operation, color_to_unknown_operation};
 
 pub mod blending;
 pub mod consts;
 mod utils;
+pub mod simd_casts;
 
 static RNG: LazyLock<Mutex<SmallRng>> = LazyLock::new(|| Mutex::new(SmallRng::from_os_rng()));
+const DEG_CONV: f32 = f32_PI / 180f32;
 
 
 #[repr(C)]
@@ -64,7 +66,7 @@ impl Color {
     }
 
     #[staticmethod]
-    pub fn from_decimal_rgba(r: f64, g: f64, b: f64, a: f64) -> PyResult<Color> {
+    pub fn from_decimal_rgba(r: f32, g: f32, b: f32, a: f32) -> PyResult<Color> {
         find_invalid_range!(r, "Red");
         find_invalid_range!(b, "Blue");
         find_invalid_range!(g, "Green");
@@ -73,61 +75,51 @@ impl Color {
     }
 
     #[staticmethod]
-    pub fn from_cmyk(c: f64, m: f64, y: f64, k: f64, transparency: f64) -> PyResult<Color> {
+    pub fn from_cmyk(c: f32, m: f32, y: f32, k: f32, transparency: f32) -> PyResult<Color> {
         find_invalid_range!(c, "Cyan");
         find_invalid_range!(m, "Magenta");
         find_invalid_range!(y, "Yellow");
         find_invalid_range!(k, "Key (Black)");
         find_invalid_range!(transparency, "Transparency");
-        Ok(Color(AtomicU32::from(u32::from_be_bytes([
-            (255.0 * (1.0 - c) * (1.0 - k)).round() as u8,
-            (255.0 * (1.0 - m) * (1.0 - k)).round() as u8,
-            (255.0 * (1.0 - y) * (1.0 - k)).round() as u8,
-            (transparency * 255.0) as u8
-        ]))))
+        let mut calc = AutoF32x4::new(c, m, y, 0f32)
+            .neg()
+            .add(AutoF32x4::splat(1f32))
+            .mul(AutoF32x4::splat(255f32))
+            .mul(AutoF32x4::splat(1f32 - k))
+            .simd_round();
+        calc.replace(3, transparency * 255.0);
+        Ok(create_color!(f32x4_to_u32(calc)))
     }
 
     #[staticmethod]
     #[pyo3(signature = (x, y, z, transparency=1.0))]
-    pub fn from_xyz(x: f64, y: f64, z: f64, transparency: f64) -> PyResult<Color> {
+    pub fn from_xyz(x: f32, y: f32, z: f32, transparency: f32) -> PyResult<Color> {
         find_invalid_range!(x, "X", 0.0, 95.047);
         find_invalid_range!(y, "Y", 0.0, 100.0);
         find_invalid_range!(z, "z", 0.0, 108.883);
         find_invalid_range!(transparency, "Transparency");
-        let x = x / 100.0;
-        let y = y / 100.0;
-        let z = z / 100.0;
+        let xyz = AutoF32x4::new(x, y, z, 0f32).div(AutoF32x4::splat(100f32));
 
-        let mut r = x * 3.2406 + y * -1.5372 + z * -0.4986;
-        let mut g = x * -0.9689 + y * 1.8758 + z * 0.0415;
-        let mut b = x * 0.0557 + y * -0.2040 + z * 1.0570;
+        let r = xyz.mul(AutoF32x4::new(3.2406f32, -1.5372f32, -0.4986f32, 0f32)).simd_horizontal_sum();
+        let g = xyz.mul(AutoF32x4::new(-0.9689f32, 1.8758f32, 0.0415f32, 0f32)).simd_horizontal_sum();
+        let b = xyz.mul(AutoF32x4::new(0.0557f32, -0.2040f32, 1.0570f32, 0f32)).simd_horizontal_sum();
+        let rgb = AutoF32x4::new(r, g, b, 0f32);
+        let converted = rgb.simd_gt(AutoF32x4::splat(0.0031308f32)).if_else(|| {
+            rgb.simd_powf(AutoF32x4::splat(0.41666667f32))
+                .mul(AutoF32x4::splat(1.055f32))
+                .sub(AutoF32x4::splat(0.055f32))
+        }, || {rgb.mul(AutoF32x4::splat(12.92f32))}).0;
 
-        r = if r > 0.0031308 {
-            1.055 * (r.powf(0.41666667)) - 0.055
-        } else {
-            12.92 * r
-        };
-        g = if g > 0.0031308 {
-            1.055 * (g.powf(0.41666667)) - 0.055
-        } else {
-            12.92 * g
-        };
-        b = if b > 0.0031308 {
-            1.055 * (b.powf(0.41666667)) - 0.055
-        } else {
-            12.92 * b
-        };
-
-        Ok(to_unit_rgba!(r, g, b, transparency))
+        Ok(to_unit_rgba!(converted[0], converted[1], converted[2], transparency))
     }
 
     #[staticmethod]
-    pub fn from_lch(l: f64, c: f64, h: i16, transparency: f64) -> PyResult<Color> {
+    pub fn from_lch(l: f32, c: f32, h: i16, transparency: f32) -> PyResult<Color> {
         find_invalid_range!(l, "L", 0.0, 100.0);
         find_invalid_range!(c, "C", 0.0, 200.0);
         find_invalid_range!(transparency, "Transparency");
-        let mut h_scoped = (h as f64).rem_euclid(360.0);
-        h_scoped *= PI / 180.0;
+        let mut h_scoped = (h as f32).rem_euclid(360.0);
+        h_scoped *= DEG_CONV;
         let a = h_scoped.cos() * c;
         let b = h_scoped.sin() * c;
         Ok(Color::from_oklab(l, a, b, transparency))
@@ -135,11 +127,11 @@ impl Color {
 
     #[staticmethod]
     #[pyo3(signature = (h, s, v, transparency=1.0))]
-    pub fn from_hsv(h: i16, s: f64, v: f64, transparency: f64) -> PyResult<Color> {
+    pub fn from_hsv(h: i16, s: f32, v: f32, transparency: f32) -> PyResult<Color> {
         find_invalid_range!(s, "Saturation");
         find_invalid_range!(v, "Value");
         find_invalid_range!(transparency, "Transparency");
-        let mut adjusted_h = (h as f64).rem_euclid(360.0);
+        let mut adjusted_h = (h as f32).rem_euclid(360.0);
         adjusted_h /= 360.0;
         let floored_h = adjusted_h.floor();
         let diff = adjusted_h - floored_h;
@@ -155,13 +147,13 @@ impl Color {
 
     #[staticmethod]
     #[pyo3(signature = (h, s, l, transparency=1.0))]
-    pub fn from_hsl(h: i16, s: f64, l: f64, transparency: f64) -> PyResult<Color> {
+    pub fn from_hsl(h: i16, s: f32, l: f32, transparency: f32) -> PyResult<Color> {
         find_invalid_range!(s, "Saturation");
         find_invalid_range!(l, "Lightness");
         find_invalid_range!(transparency, "Transparency");
         let h_scoped = h.rem_euclid(360);
         let c = (1.0 - ((2.0 * l) - 1.0).abs()) * s;
-        let x = c * (1.0 - ((((h_scoped as f64) / 60.0) % 2.0) - 1.0).abs());
+        let x = c * (1.0 - ((((h_scoped as f32) / 60.0) % 2.0) - 1.0).abs());
         let m = l - (c / 2.0);
         let (r, g, b) = match h_scoped {
             0..60 => (c, x, 0.0),
@@ -208,63 +200,89 @@ impl Color {
 
     #[staticmethod]
     #[pyo3(signature = (l, a, b, transparency=1.0))]
-    pub fn from_oklab(l: f64, a: f64, b: f64, transparency: f64) -> Color {
-        let l_new = l + (0.396_337_78 * a) + (0.215_803_76 * b);
-        let a_new = l - (0.105_561_346 * a) - (0.063_854_17 * b);
-        let b_new = l - (0.089_484_18 * a) - (1.291_485_5 * b);
+    pub fn from_oklab(l: f32, a: f32, b: f32, transparency: f32) -> Color {
+        let cubed = AutoF32x4::splat(l).add(
+            AutoF32x4::new(0.396_337_78, 0.105_561_346, 0.089_484_18, 0f32)
+                .mul(AutoF32x4::splat(a))
+                .mul(AutoF32x4::new(1f32, -1f32, -1f32, 0f32))
+        ).add(
+            AutoF32x4::new(0.215_803_76, 0.063_854_17, 1.291_485_5, 0f32)
+                .mul(AutoF32x4::splat(b))
+                .mul(AutoF32x4::new(1f32, -1f32, -1f32, 0f32))
+        ).simd_powi(3i32);
+        let l_c = AutoF32x4::splat(cubed.0[0]).mul(AutoF32x4::new(
+            4.076_741_7f32,
+            -1.268_438f32,
+            -0.0041960863f32,
+            0f32
+        ));
 
-        let l_cubed = l_new.powi(3);
-        let a_cubed = a_new.powi(3);
-        let b_cubed = b_new.powi(3);
+        let a_c = AutoF32x4::splat(cubed.0[1]).mul(AutoF32x4::new(
+            -3.307_711_6,
+            2.609_757_4,
+                -0.703_418_6,
+            0f32
+        ));
 
-        let r = (4.076_741_7 * l_cubed) - (3.307_711_6 * a_cubed) + (0.230_969_94 * b_cubed);
-        let g = (-1.268_438 * l_cubed) + (2.609_757_4 * a_cubed) - (0.341_319_38 * b_cubed);
-        let b = (-0.0041960863 * l_cubed) - (0.703_418_6 * a_cubed) + (1.707_614_7 * b_cubed);
+        let b_c = AutoF32x4::splat(cubed.0[2]).mul(AutoF32x4::new(
+            0.230_969_94,
+            -0.341_319_38,
+            1.707_614_7,
+            0f32
+        ));
 
-        to_unit_rgba!(r, g, b, transparency)
+        let rgb = l_c.add(a_c).add(b_c).0;
+
+        to_unit_rgba!(rgb[0], rgb[1], rgb[2], transparency)
     }
 
     #[staticmethod]
-    pub fn mlerp(start: PyRef<'_, Self>, end: PyRef<'_, Self>, t: f64) -> PyResult<Color> {
+    pub fn mlerp(start: PyRef<'_, Self>, end: PyRef<'_, Self>, t: f32) -> PyResult<Color> {
         find_invalid_range!(t, "t");
-        let t_inverted = 1.0 - t;
-        let a = start.0.load(Ordering::Relaxed) as f64;
-        let b = end.0.load(Ordering::Relaxed) as f64;
+        let t_inverted = AutoF32x4::splat(1.0 - t);
+        let a = u8x4_to_f32x4(AutoU8x4::from(start.0.load(Ordering::Relaxed).to_be_bytes()));
+        let b = u8x4_to_f32x4(AutoU8x4::from(end.0.load(Ordering::Relaxed).to_be_bytes()));
 
-        Ok(create_color!(((t_inverted * a) + t * b).round() as u32))
+        Ok(create_color!(f32x4_to_u32(t_inverted.mul(a).add(AutoF32x4::splat(t).mul(b)).simd_round())))
     }
 
     #[staticmethod]
-    pub fn clerp(start: PyRef<'_, Self>, end: PyRef<'_, Self>, t: f64) -> PyResult<Color> {
+    pub fn clerp(start: PyRef<'_, Self>, end: PyRef<'_, Self>, t: f32) -> PyResult<Color> {
         find_invalid_range!(t, "t");
         let a = start.0.load(Ordering::Relaxed);
         let b = end.0.load(Ordering::Relaxed);
         let lch_start = to_lch!(start);
         let lch_end = to_lch!(end);
-        let one_minus_t = 1.0 - t;
-        let new_values = (
-            (one_minus_t * lch_start.0) + (t * lch_end.0),
-            (one_minus_t * lch_start.1) + (t * lch_end.1),
-            (one_minus_t * (lch_start.2 as f64)) + (t * (lch_end.2 as f64)),
-            (one_minus_t * ((a >> 24) & 0xFF) as f64) + (t * (((b >> 24) & 0xFF) as f64)),
-        );
+        let converted = clerp_impl!(lch_start, ((a >> 24) & 0xFF) as f32, lch_end, ((b >> 24) & 0xFF) as f32, t);
         Color::from_lch(
-            new_values.0,
-            new_values.1,
-            new_values.2.floor() as i16,
-            new_values.3 / 255.0,
+            converted[0],
+            converted[1],
+            converted[2].floor() as i16,
+            converted[3] / 255.0,
         )
     }
 
-    pub fn mlerp_inplace(slf: PyRef<'_, Self>, end: PyRef<'_, Self>, t: f64) -> PyResult<()> {
-        let result: PyResult<u32> = clerp_impl!(slf, end, t);
-        slf.0.store(result?, Ordering::Relaxed);
+    pub fn mlerp_inplace(slf: PyRef<'_, Self>, end: PyRef<'_, Self>, t: f32) -> PyResult<()> {
+        let t_inverted = AutoF32x4::splat(1.0 - t);
+        let a = u8x4_to_f32x4(AutoU8x4::from(slf.0.load(Ordering::Relaxed).to_be_bytes()));
+        let b = u8x4_to_f32x4(AutoU8x4::from(end.0.load(Ordering::Relaxed).to_be_bytes()));
+
+        slf.0.store(f32x4_to_u32(t_inverted.mul(a).add(AutoF32x4::splat(t).mul(b)).simd_round()), Ordering::Relaxed);
         Ok(())
     }
 
-    pub fn clerp_inplace(slf: PyRef<'_, Self>, end: PyRef<'_, Self>, t: f64) -> PyResult<()> {
-        let result: PyResult<u32> = clerp_impl!(slf, end, t);
-        slf.0.store(result?, Ordering::Relaxed);
+    pub fn clerp_inplace(slf: PyRef<'_, Self>, end: PyRef<'_, Self>, t: f32) -> PyResult<()> {
+        let a = slf.0.load(Ordering::Relaxed);
+        let b = end.0.load(Ordering::Relaxed);
+        let lch_start = to_lch!(slf);
+        let lch_end = to_lch!(end);
+        let converted = clerp_impl!(lch_start, ((a >> 24) & 0xFF) as f32, lch_end, ((b >> 24) & 0xFF) as f32, t);
+        slf.0.store(Color::from_lch(
+            converted[0],
+            converted[1],
+            converted[2].floor() as i16,
+            converted[3] / 255.0,
+        )?.0.load(Ordering::Relaxed), Ordering::Relaxed);
         Ok(())
     }
 
@@ -277,13 +295,8 @@ impl Color {
         let rgba1 = to_decimal_rgba!(slf);
         let rgb2 = to_decimal_rgba!(other);
         let blended = blending::compute_blend(&blend_mode, rgba1, rgb2);
-        let blended = (blended * f64x4::splat(255.0)).round();
-        slf.0.store(u32::from_be_bytes([
-            blended[0] as u8,
-            blended[1] as u8,
-            blended[2] as u8,
-            blended[3] as u8,
-        ]), Ordering::Relaxed);
+        let blended = blended.mul(AutoF32x4::splat(255.0)).simd_round();
+        slf.0.store(f32x4_to_u32(blended), Ordering::Relaxed);
         Ok(slf)
     }
 
@@ -294,7 +307,9 @@ impl Color {
         include_transparency: bool,
     ) -> PyResult<PyRef<'a, Self>> {
         slf.0.store(color_to_color_operation(
-            &slf, &other, include_transparency, |_| 0, u8x4::saturating_add
+            &slf, &other, include_transparency, |_| 0, |x, y| {
+                u8x4_to_u32(x.add(y).simd_clamp(AutoU8x4::splat(0), AutoU8x4::splat(255)))
+            }
         ), Ordering::Relaxed);
         Ok(slf)
     }
@@ -308,16 +323,18 @@ impl Color {
     ) -> PyResult<PyRef<'a, Self>> {
         let result: PyResult<u32> = color_to_unknown_operation(
             py, &slf, other, include_transparency,
-            |_| 0, f64x4::sub, u8x4::saturating_sub
+            |_| 0, AutoF32x4::sub, |x, y| {
+                u8x4_to_u32(x.sub(y).simd_clamp(AutoU8x4::splat(0), AutoU8x4::splat(255)))
+            }
         );
         slf.0.store(result?, Ordering::Relaxed);
         Ok(slf)
     }
 
     #[pyo3(signature = (scalar, include_transparency=false))]
-    pub fn mul(slf: PyRef<'_, Self>, scalar: f64, include_transparency: bool) -> PyResult<PyRef<'_, Self>> {
+    pub fn mul(slf: PyRef<'_, Self>, scalar: f32, include_transparency: bool) -> PyResult<PyRef<'_, Self>> {
         slf.0.store(
-            color_to_scalar_operation(&slf, scalar, include_transparency, |_| 1, f64x4::mul),
+            color_to_scalar_operation(&slf, scalar, include_transparency, |_| 1, AutoF32x4::mul),
             Ordering::Relaxed
         );
         Ok(slf)
@@ -326,14 +343,14 @@ impl Color {
     #[pyo3(signature = (scalar, include_transparency=false))]
     pub fn div<'a>(
         slf: PyRef<'a, Self>,
-        scalar: f64,
+        scalar: f32,
         include_transparency: bool,
     ) -> PyResult<PyRef<'a, Self>> {
         if scalar == 0.0 {
             return Err(PyZeroDivisionError::new_err("Cannot divide a color by zero"))
         }
         slf.0.store(
-            color_to_scalar_operation(&slf, scalar, include_transparency, |_| 1, f64x4::div),
+            color_to_scalar_operation(&slf, scalar, include_transparency, |_| 1, AutoF32x4::div),
             Ordering::Relaxed
         );
         Ok(slf)
@@ -347,9 +364,11 @@ impl Color {
     ) -> PyRef<'a, Self> {
         slf.0.store(
             color_to_color_operation(&slf, &other, include_transparency, |_| 1, |a, b| {
-                (a.cast() as f32x4).mul(b.cast() as f32x4).round()
-                    .simd_max(f32x4::splat(0f32))
-                    .simd_min(f32x4::splat(255f32)).cast() as u8x4
+                f32x4_to_u32(
+                    u8x4_to_f32x4(a).mul(u8x4_to_f32x4(b)).simd_round()
+                        .simd_max(AutoF32x4::splat(0f32))
+                        .simd_min(AutoF32x4::splat(255f32))
+                )
             }),
             Ordering::Relaxed
         );
@@ -361,16 +380,16 @@ impl Color {
         slf: PyRef<'a, Self>,
         include_transparency: bool,
     ) -> PyResult<PyRef<'a, Self>> {
-        let channels = f64x4::from_array(extract_rgba_channels_by_type!(slf, f64, |v| v))
-            .sqrt()
-            .simd_clamp(f64x4::splat(0.0), f64x4::splat(255.0))
-            .round();
-        slf.0.store(u32::from_be_bytes([
-            channels[0] as u8,
-            channels[1] as u8,
-            channels[2] as u8,
-            if include_transparency {channels[3] as u8} else {slf.0.load(Ordering::Relaxed) as u8}
-        ]), Ordering::Relaxed);
+        let channels = AutoF32x4::from(extract_rgba_channels_by_type!(slf, f32, |v| v))
+            .simd_sqrt()
+            .simd_clamp(AutoF32x4::splat(0.0), AutoF32x4::splat(255.0))
+            .simd_round();
+        slf.0.store(f32x4_to_u32(AutoF32x4::new(
+            channels.0[0],
+            channels.0[1],
+            channels.0[2],
+            if include_transparency {channels.0[3]} else {slf.0.load(Ordering::Relaxed) as u8 as f32}
+        )), Ordering::Relaxed);
         Ok(slf)
     }
 
@@ -383,51 +402,55 @@ impl Color {
         if base <= 1 {
             return Err(PyValueError::new_err("Square root base has to be above 1"));
         }
-        let float_base: f64 = 1.0 / (base as f64);
+        let float_base: f32 = 1.0 / (base as f32);
         let channels = slf.0.load(Ordering::Relaxed).to_be_bytes();
-        let r = (channels[0] as f64).powf(float_base).clamp(0.0, 255.0).floor() as u8;
-        let g = (channels[1] as f64).powf(float_base).clamp(0.0, 255.0).floor() as u8;
-        let b = (channels[2] as f64).powf(float_base).clamp(0.0, 255.0).floor() as u8;
-        let a = if include_transparency {
-            (channels[3] as f64).powf(float_base).clamp(0.0, 255.0).floor() as u8
-        } else {channels[3]};
-        slf.0.store(u32::from_be_bytes([r, g, b, a]), Ordering::Relaxed);
+        let packed = f32x4_to_u32(u8x4_to_f32x4(AutoU8x4::from(channels)).simd_powf(AutoF32x4::new(
+            float_base,
+            float_base,
+            float_base,
+            if include_transparency {float_base} else {1f32}
+        )).simd_clamp(
+            AutoF32x4::splat(0.0),
+            AutoF32x4::splat(255.0)
+        ).simd_round());
+        slf.0.store(packed, Ordering::Relaxed);
         Ok(slf)
     }
 
     #[pyo3(signature = (other, include_transparency=false))]
     pub fn max(&self, other: Self, include_transparency: bool) -> Self {
-        let color1 = u8x4::from_array(unpack_rgba!(self, include_transparency).to_be_bytes());
-        let color2 = u8x4::from_array(unpack_rgba!(other, include_transparency).to_be_bytes());
-        create_color!(u32::from_be_bytes(color1.max(color2).to_array()))
+        let color1 = AutoU8x4::from(unpack_rgba!(self, include_transparency).to_be_bytes());
+        let color2 = AutoU8x4::from(unpack_rgba!(other, include_transparency).to_be_bytes());
+        create_color!(u32::from_be_bytes(color1.simd_max(color2).0))
     }
 
     #[pyo3(signature = (other, include_transparency=false))]
     pub fn min(&self, other: Self, include_transparency: bool) -> Self {
-        let color1 = u8x4::from_array(unpack_rgba!(self, include_transparency).to_be_bytes());
-        let color2 = u8x4::from_array(unpack_rgba!(other, include_transparency).to_be_bytes());
-        create_color!(u32::from_be_bytes(color1.min(color2).to_array()))
+        let color1 = AutoU8x4::from(unpack_rgba!(self, include_transparency).to_be_bytes());
+        let color2 = AutoU8x4::from(unpack_rgba!(other, include_transparency).to_be_bytes());
+        create_color!(u32::from_be_bytes(color1.simd_max(color2).0))
     }
 
     #[pyo3(signature = (include_transparency=false))]
     pub fn inverse(slf: PyRef<'_, Self>, include_transparency: bool) -> PyRef<'_, Self> {
         let channels: [u8; 4] = slf.0.load(Ordering::Relaxed).to_be_bytes();
-        slf.0.store(u32::from_be_bytes([
-            255 - channels[0],
-            255 - channels[1],
-            255 - channels[2],
-            if include_transparency {255 - channels[3]} else {channels[3]}
-        ]), Ordering::Relaxed);
+        slf.0.store(u32::from_be_bytes(
+            AutoU8x4::new(
+                255u8,
+                255u8,
+                255u8,
+                255u8 * (include_transparency as u8)
+            ).sub(AutoU8x4::from(channels)).0
+        ), Ordering::Relaxed);
         slf
     }
 
     pub fn grayscale(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         let channels: [u8; 4] = slf.0.load(Ordering::Relaxed).to_be_bytes();
-        let value: u8 = (
-            0.299 * channels[0] as f32 +
-                0.587 * channels[1] as f32 +
-                0.114 * channels[2] as f32
-        ).round() as u8;
+        let value = AutoF32x4::new(0.299, 0.587, 0.114, 0f32)
+            .mul(u8x4_to_f32x4(AutoU8x4::from(channels)))
+            .simd_horizontal_sum()
+            .round() as u8;
         slf.0.store(u32::from_be_bytes([
             value,
             value,
@@ -524,13 +547,13 @@ impl Color {
         let hue = ((hsl.0 as i16) + new_degrees).rem_euclid(360);
         let new_color = Color::from_hsl(
             hue, hsl.1, hsl.2,
-            (extract_rgb_channel!(slf, 3) as f64) / 255.0
+            (extract_rgb_channel!(slf, 3) as f32) / 255.0
         )?;
         slf.0.store(new_color.0.into_inner(), Ordering::Relaxed);
         Ok(slf)
     }
 
-    pub fn saturate<'a>(slf: PyRef<'a, Self>, factor: f64) -> PyResult<PyRef<'a, Self>> {
+    pub fn saturate<'a>(slf: PyRef<'a, Self>, factor: f32) -> PyResult<PyRef<'a, Self>> {
         if factor == 0.0 {
             return Ok(slf);
         }
@@ -538,7 +561,7 @@ impl Color {
         hsv.1 *= factor + 1.0;
         let new_color = Color::from_hsv(
             hsv.0 as i16, hsv.1, hsv.2,
-            (extract_rgb_channel!(slf, 3) as f64) / 255.0
+            (extract_rgb_channel!(slf, 3) as f32) / 255.0
         )?;
         slf.0.store(new_color.0.into_inner(), Ordering::Relaxed);
         Ok(slf)
@@ -582,13 +605,15 @@ impl Color {
         Ok(slf)
     }
 
-    pub fn get_luminance(&self) -> f64 {
+    pub fn get_luminance(&self) -> f32 {
         let rgba = to_decimal_rgba!(self);
-        let z1 = rgba / f64x4::splat(12.92);
-        let z2 = (rgba + f64x4::splat(0.055)) / f64x4::splat(1.055);
-        let mask = rgba.simd_lt(f64x4::splat(0.03928));
-        let result = mask.select(z1, z2);
-        0.2126 * result[0].powf(2.4) + 0.7152 * result[1].powf(2.4) + 0.0722 * result[2].powf(2.4)
+        let mask = rgba.simd_lt(AutoF32x4::splat(0.03928));
+        mask.if_else(|| rgba / AutoF32x4::splat(12.92), || {
+            (rgba + AutoF32x4::splat(0.055)) / AutoF32x4::splat(1.055)
+        })
+            .simd_powf(AutoF32x4::splat(2.4))
+            .mul(AutoF32x4::new(0.2126, 0.7152, 0.0722, 0f32))
+            .simd_horizontal_sum()
     }
 
     pub fn get_saturation(&self) -> f32 {
@@ -636,12 +661,12 @@ impl Color {
         hex_str
     }
 
-    pub fn to_hsv(&self) -> (u16, f64, f64, f64) {
+    pub fn to_hsv(&self) -> (u16, f32, f32, f32) {
         let hsv = to_hsv!(self);
-        (hsv.0, hsv.1, hsv.2, (extract_rgb_channel!(self, 3) as f64) / 255.0)
+        (hsv.0, hsv.1, hsv.2, (extract_rgb_channel!(self, 3) as f32) / 255.0)
     }
 
-    pub fn to_hsl(&self) -> (u16, f64, f64, f64) {
+    pub fn to_hsl(&self) -> (u16, f32, f32, f32) {
         let values = calc_hue_saturation!(self);
         let l = (values.2 + values.3) / 2.0;
         let delta = values.2 - values.3;
@@ -650,77 +675,77 @@ impl Color {
         } else {
             delta / (1.0 - (2.0 * l - 1.0).abs())
         };
-        (values.0, s, l, (extract_rgb_channel!(self, 3) as f64) / 255.0)
+        (values.0, s, l, (extract_rgb_channel!(self, 3) as f32) / 255.0)
     }
 
-    pub fn to_decimal_rgb(&self) -> (f64, f64, f64) {
+    pub fn to_decimal_rgb(&self) -> (f32, f32, f32) {
         let result = to_decimal_rgba!(self);
-        (result[0], result[1], result[2])
+        (result.0[0], result.0[1], result.0[2])
     }
 
-    pub fn to_decimal_rgba(&self) -> (f64, f64, f64, f64) {
-        let result = to_decimal_rgba!(self);
+    pub fn to_decimal_rgba(&self) -> (f32, f32, f32, f32) {
+        let result = to_decimal_rgba!(self).0;
         (result[0], result[1], result[2], result[3])
     }
 
-    pub fn to_cmyk(&self) -> (f64, f64, f64, f64, f64) {
+    pub fn to_cmyk(&self) -> (f32, f32, f32, f32, f32) {
         let rgba = to_decimal_rgba!(*self);
-        let k = 1.0 - rgba.reduce_max();
+        let k = 1.0 - rgba.simd_horizontal_max();
         let k_invert = 1.0 - k;
 
         if k_invert == 0.0 {
-            return (0.0, 0.0, 0.0, 1.0, rgba[3]);
+            return (0.0, 0.0, 0.0, 1.0, rgba.0[3]);
         }
-        let splat_invert_k = f64x4::splat(k_invert);
+        let splat_invert_k = AutoF32x4::splat(k_invert);
         let cmy = (splat_invert_k - rgba) / splat_invert_k;
-        (cmy[0], cmy[1], cmy[2], k, rgba[3])
+        (cmy.0[0], cmy.0[1], cmy.0[2], k, rgba.0[3])
     }
 
-    pub fn to_xyz(&self) -> (f64, f64, f64, f64) {
+    pub fn to_xyz(&self) -> (f32, f32, f32, f32) {
         let rgba = to_decimal_rgba!(*self);
-        let z1 = (rgba + f64x4::splat(0.055)) / f64x4::splat(1.055);
-        let z2 = rgba / f64x4::splat(12.92);
-        let mask = rgba.simd_gt(f64x4::splat(0.04045));
-        let result = mask.select(z1, z2) * f64x4::splat(100.0);
-        let red_weights = f64x4::from_array([
+        let mask = rgba.simd_gt(AutoF32x4::splat(0.04045));
+        let result = mask.if_else(|| {
+            (rgba + AutoF32x4::splat(0.055)) / AutoF32x4::splat(1.055)
+        }, || rgba / AutoF32x4::splat(12.92)) * AutoF32x4::splat(100.0);
+        let red_weights = AutoF32x4::new(
             0.4124,
             0.2126,
             0.0193,
             0.0
-        ]) * f64x4::splat(result[0].powf(2.4));
+        ) * AutoF32x4::splat(result.0[0].powf(2.4));
 
-        let green_weights = f64x4::from_array([
+        let green_weights = AutoF32x4::new(
             0.3576,
             0.7152,
             0.1192,
             0.0
-        ]) * f64x4::splat(result[1].powf(2.4));
+        ) * AutoF32x4::splat(result.0[1].powf(2.4));
 
-        let blue_weights = f64x4::from_array([
+        let blue_weights = AutoF32x4::new(
             0.1805,
             0.0722,
             0.9505,
             0.0
-        ]) * f64x4::splat(result[1].powf(2.4));
+        ) * AutoF32x4::splat(result.0[1].powf(2.4));
 
         let final_result = red_weights + green_weights + blue_weights;
 
         (
-            final_result[0],
-            final_result[1],
-            final_result[2],
-            rgba[3]
+            final_result.0[0],
+            final_result.0[1],
+            final_result.0[2],
+            rgba.0[3]
         )
     }
 
-    pub fn to_oklab(slf: PyRef<'_, Self>) -> (f64, f64, f64, f64) {
+    pub fn to_oklab(slf: PyRef<'_, Self>) -> (f32, f32, f32, f32) {
         let oklab = to_oklab!(slf);
-        (oklab[0], oklab[1], oklab[2], (extract_rgb_channel!(&slf, 3) as f64) / 255.0)
+        (oklab.0[0], oklab.0[1], oklab.0[2], (extract_rgb_channel!(&slf, 3) as f32) / 255.0)
     }
 
-    pub fn to_lch(slf: PyRef<'_, Self>) -> (f64, f64, u16, f64) {
+    pub fn to_lch(slf: PyRef<'_, Self>) -> (f32, f32, u16, f32) {
         let lch = to_lch!(slf);
-        (lch.0, lch.1, lch.2, (extract_rgb_channel!(&slf, 3) as f64) / 255.0)
+        (lch.0, lch.1, lch.2, (extract_rgb_channel!(&slf, 3) as f32) / 255.0)
     }
 
     pub fn to_rgba_list<'a>(&self, python: Python<'a>) -> PyResult<Bound<'a, PyList>> {
@@ -733,10 +758,10 @@ impl Color {
         PyList::new(
             python,
             vec![
-                rgba[0],
-                rgba[1],
-                rgba[2],
-                rgba[3]
+                rgba.0[0] as u8,
+                rgba.0[1] as u8,
+                rgba.0[2] as u8,
+                rgba.0[3] as u8
             ],
         )
     }
@@ -759,7 +784,9 @@ impl Color {
     pub fn __add__(&self, py: Python<'_>, other: Py<PyAny>) -> PyResult<Color> {
         let result: PyResult<u32> = color_to_unknown_operation(
             py, self, other, true,
-            |_| 0, f64x4::add, u8x4::saturating_add
+            |_| 0, AutoF32x4::add, |a, b| u8x4_to_u32(
+                a.add(b).simd_clamp(AutoU8x4::splat(0u8), AutoU8x4::splat(255u8))
+            )
         );
         Ok(create_color!(result?))
     }
@@ -767,7 +794,9 @@ impl Color {
     pub fn __sub__(&self, py: Python<'_>, other: Py<PyAny>) -> PyResult<Color> {
         let result: PyResult<u32> = color_to_unknown_operation(
             py, self, other, true,
-            |_| 0, f64x4::sub, u8x4::saturating_sub
+            |_| 0, AutoF32x4::sub, |a, b| u8x4_to_u32(
+                a.sub(b).simd_clamp(AutoU8x4::splat(0u8), AutoU8x4::splat(255u8))
+            )
         );
         Ok(create_color!(result?))
     }
@@ -775,15 +804,16 @@ impl Color {
     pub fn __mul__(&self, py: Python<'_>, other: Py<PyAny>) -> PyResult<Color> {
         let result: PyResult<u32> = color_to_unknown_operation(
             py, self, other, true,
-            |_| 0, f64x4::mul, |a, b| a.mul(b)
-                .clamp(u8x4::splat(0u8), u8x4::splat(255u8))
+            |_| 0, AutoF32x4::mul, |a, b| u8x4_to_u32(
+                a.mul(b).simd_clamp(AutoU8x4::splat(0u8), AutoU8x4::splat(255u8))
+            )
         );
         Ok(create_color!(result?))
     }
 
-    pub fn __truediv__(&self, other: f64) -> PyResult<Color> {
+    pub fn __truediv__(&self, other: f32) -> PyResult<Color> {
         Ok(create_color!(color_to_scalar_operation(
-            self, other, true, |_| 1, f64x4::div
+            self, other, true, |_| 1, AutoF32x4::div
         )))
     }
 

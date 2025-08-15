@@ -1,13 +1,14 @@
 use std::sync::atomic::Ordering;
 use crate::extract_rgba_channels;
-use std::simd::{f64x4, u8x4, StdFloat};
 use pyo3::{PyObject, PyResult, Python};
+use simba::simd::{AutoF32x4, AutoU8x4, SimdComplexField, SimdValue};
 use crate::color::Color;
+use crate::color::simd_casts::{f32x4_to_u32};
 
 #[macro_export]
 macro_rules! to_decimal_rgba {
     ($color: expr) => {{
-        f64x4::from_array(extract_rgba_channels_by_type!($color, f64, |x| x)) / f64x4::splat(255.0)
+        AutoF32x4::from(extract_rgba_channels_by_type!($color, f32, |x| x)) / AutoF32x4::splat(255.0)
     }};
 }
 
@@ -22,51 +23,51 @@ macro_rules! interpret_to_hex {
 macro_rules! to_oklab {
     ($color: expr) => {{
         let rgba = to_decimal_rgba!($color);
-        let red_weights = f64x4::from_array([
+        let red_weights = AutoF32x4::from([
             0.4122_214_708,
             0.211_903_5,
             0.088_302_46,
             0.0
-        ]) * f64x4::splat(rgba[0]);
+        ]).mul(AutoF32x4::splat(rgba.0[0]));
 
-        let green_weights = f64x4::from_array([
+        let green_weights = AutoF32x4::from([
             0.536_332_536,
             0.680_699_5,
             0.281_718_85,
             0.0
-        ]) * f64x4::splat(rgba[1]);
+        ]).mul(AutoF32x4::splat(rgba.0[1]));
 
-        let blue_weights = f64x4::from_array([
+        let blue_weights = AutoF32x4::from([
             0.051_445_995,
             0.107_396_96,
             0.629_978_7,
             0.0
-        ]) * f64x4::splat(rgba[2]);
+        ]).mul(AutoF32x4::splat(rgba.0[2]));
 
-        let lab = red_weights + blue_weights + green_weights;
+        let lab = red_weights.add(blue_weights).add(green_weights);
 
-        let l_weights = f64x4::from_array([
+        let l_weights = AutoF32x4::from([
             0.210_454_26,
             1.977_998_5,
             0.025_904_037,
             0.0
-        ]) * f64x4::splat(lab[0].cbrt());
+        ]).mul(AutoF32x4::splat(lab.0[0].cbrt()));
 
-        let a_weights = f64x4::from_array([
+        let a_weights = AutoF32x4::from([
             0.793_617_8,
             2.428_592_2,
             0.782_771_77,
             0.0
-        ]) * f64x4::splat(lab[1].cbrt());
+        ]).mul(AutoF32x4::splat(lab.0[1].cbrt()));
 
-        let b_weights = f64x4::from_array([
+        let b_weights = AutoF32x4::from([
             0.004_072_047,
             0.450_593_7,
             0.808_675_77,
             0.0
-        ]) * f64x4::splat(lab[2].cbrt());
+        ]).mul(AutoF32x4::splat(lab.0[2].cbrt()));
 
-        l_weights + a_weights + b_weights
+        l_weights.add(a_weights).add(b_weights)
     }};
 }
 
@@ -75,28 +76,28 @@ macro_rules! to_lch {
     ($color: expr) => {{
         let lab = to_oklab!($color);
 
-        let c = (lab[1].powf(2.0) + lab[2].powf(2.0)).sqrt();
+        let c = (lab.0[1].powf(2.0) + lab.0[2].powf(2.0)).sqrt();
 
-        let mut h = lab[1].atan2(lab[0]);
+        let mut h = lab.0[1].atan2(lab.0[0]);
         h = if h > 0.0 {
-            (h / PI) * 180.0
+            (h / f32_PI) * 180.0
         } else {
-            360.0 - (h.abs() / PI) * 180.0
+            360.0 - (h.abs() / f32_PI) * 180.0
         };
 
-        (lab[0], c, h.floor() as u16)
+        (lab.0[0], c, h.floor() as u16)
     }};
 }
 
 #[macro_export]
 macro_rules! calc_hue_saturation {
     ($color: expr) => {{
-        let rgb = to_decimal_rgba!($color);
+        let rgb = to_decimal_rgba!($color).0;
 
-        let c_max = f64x4::from_array([rgb[0], rgb[1], rgb[2], f64::MIN]).reduce_max();
-        let c_min = f64x4::from_array([rgb[0], rgb[1], rgb[2], f64::MAX]).reduce_min();
+        let c_max = AutoF32x4::from([rgb[0], rgb[1], rgb[2], f32::MIN]).simd_horizontal_max();
+        let c_min = AutoF32x4::from([rgb[0], rgb[1], rgb[2], f32::MAX]).simd_horizontal_min();
         let delta = c_max - c_min;
-        let mut h = 0.0;
+        let mut h: f32 = 0.0;
 
         if delta == 0.0 {
             h = 0.0
@@ -109,7 +110,7 @@ macro_rules! calc_hue_saturation {
         }
 
         h *= 60.0;
-        h = h.rem_euclid(360.0);
+        h = h.rem_euclid(360.0f32);
 
         let s = if c_max != 0.0 { delta / c_max } else { 0.0 };
 
@@ -135,12 +136,11 @@ macro_rules! create_color {
 #[macro_export]
 macro_rules! to_unit_rgba {
     ($r: expr, $g: expr, $b: expr, $a: expr) => {{
-        Color(AtomicU32::from(u32::from_be_bytes([
-            ($r * 255.0).round() as u8,
-            ($g * 255.0).round() as u8,
-            ($b * 255.0).round() as u8,
-            ($a * 255.0).round() as u8,
-        ])))
+        Color(AtomicU32::from(f32x4_to_u32(
+            AutoF32x4::new($r, $g, $b, $a)
+                .mul(AutoF32x4::splat(255f32))
+                .simd_round()
+        )))
     }};
 }
 
@@ -184,34 +184,28 @@ pub(crate) fn color_to_color_operation<Op>(
     include_transparency: bool,
     identity_fn: impl Fn(u32) -> u8,
     op: Op,
-) -> u32 where Op: Fn(u8x4, u8x4) -> u8x4, {
+) -> u32 where Op: Fn(AutoU8x4, AutoU8x4) -> u32, {
     let a_bits = extract_rgba_channels!(a);
     let b_bits = extract_rgba_channels!(b, include_transparency, identity_fn);
-    let a_vec = u8x4::from_array(a_bits);
-    let b_vec = u8x4::from_array(b_bits);
-    u32::from_be_bytes(*op(a_vec, b_vec).as_array())
+    let a_vec = AutoU8x4::from(a_bits);
+    let b_vec = AutoU8x4::from(b_bits);
+    op(a_vec, b_vec)
 }
 
 #[inline(always)]
 pub(crate) fn color_to_scalar_operation<Op>(
     a: &Color,
-    b: f64,
+    b: f32,
     include_transparency: bool,
     identity_fn: impl Fn(u32) -> u8,
     op: Op,
-) -> u32 where Op: Fn(f64x4, f64x4) -> f64x4, {
-    let a_bits = extract_rgba_channels_by_type!(a, f64, |value| {
+) -> u32 where Op: Fn(AutoF32x4, AutoF32x4) -> AutoF32x4, {
+    let a_bits = extract_rgba_channels_by_type!(a, f32, |value| {
         if include_transparency {value as u8} else {identity_fn(value)}
     });
-    let a_vec = f64x4::from_array(a_bits);
-    let b_vec = f64x4::splat(b);
-    let result = op(a_vec, b_vec).round();
-    u32::from_be_bytes([
-        result[0] as u8,
-        result[1] as u8,
-        result[2] as u8,
-        result[3] as u8
-    ])
+    let a_vec = AutoF32x4::from(a_bits);
+    let b_vec = AutoF32x4::splat(b);
+    f32x4_to_u32(op(a_vec, b_vec).simd_round())
 }
 
 #[inline(always)]
@@ -223,9 +217,9 @@ pub(crate) fn color_to_unknown_operation<ScalarOP, ColorOP>(
     identity_fn: impl Fn(u32) -> u8,
     scalar_op: ScalarOP,
     color_op: ColorOP,
-) -> PyResult<u32> where ScalarOP: Fn(f64x4, f64x4) -> f64x4, ColorOP: Fn(u8x4, u8x4) -> u8x4 {
+) -> PyResult<u32> where ScalarOP: Fn(AutoF32x4, AutoF32x4) -> AutoF32x4, ColorOP: Fn(AutoU8x4, AutoU8x4) -> u32 {
     if let Ok(scalar) = b.extract::<isize>(py) {
-        return Ok(color_to_scalar_operation(a, scalar as f64, include_transparency, identity_fn, scalar_op))
+        return Ok(color_to_scalar_operation(a, scalar as f32, include_transparency, identity_fn, scalar_op))
     }
     let other = b.extract::<Color>(py)?;
     Ok(color_to_color_operation(a, &other, include_transparency, identity_fn, color_op))
@@ -266,12 +260,15 @@ macro_rules! shift_impl {
     ($self: expr, $places: expr) => {{
         let rgba = $self.0.load(Ordering::Relaxed).to_be_bytes();
         let shift = (($places % 3 + 3) % 3) as usize;
+        let shift_indexes = AutoUsizex4::new(0, 1, 2, 3)
+            .add(AutoUsizex4::splat(shift))
+            .rem(AutoUsizex4::splat(3)).0;
 
         let rotated = [
-            rgba[(0 + shift) % 3],
-            rgba[(1 + shift) % 3],
-            rgba[(2 + shift) % 3],
-            rgba[(3 + shift) % 3],
+            rgba[shift_indexes[0]],
+            rgba[shift_indexes[1]],
+            rgba[shift_indexes[2]],
+            rgba[shift_indexes[3]],
         ];
 
         let shifted = u32::from_be_bytes([rotated[0], rotated[1], rotated[2], rotated[3]]);
@@ -281,11 +278,11 @@ macro_rules! shift_impl {
 
 #[macro_export]
 macro_rules! clerp_impl {
-    ($start: expr, $end: expr, $t: expr) => {{
-        find_invalid_range!($t, "t");
-        let t_inverted = 1.0 - $t;
-        let a = $start.0.load(Ordering::Relaxed);
-        let b = $end.0.load(Ordering::Relaxed) as f64;
-        Ok(((t_inverted * (a as f64)) + $t * b).round() as u32)
+    ($start: expr, $alpha_start: expr, $end: expr, $end_alpha: expr, $t: expr) => {{
+        AutoF32x4::new($start.0, $start.1, $start.2 as f32, $alpha_start)
+            .mul(AutoF32x4::splat(1.0 - $t))
+            .add(AutoF32x4::splat($t).mul(AutoF32x4::new(
+                $end.0, $end.1, $end.2 as f32, $end_alpha
+            ))).0
     }};
 }

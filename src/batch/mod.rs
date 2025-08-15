@@ -1,6 +1,4 @@
 use std::ops::{Add, Div, Mul, Sub};
-use std::simd::{f64x4, StdFloat};
-use std::simd::prelude::SimdFloat;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
 use crossbeam::queue::SegQueue;
@@ -9,8 +7,10 @@ use pyo3::prelude::*;
 use crate::batch::batch_instructions::{BatchInstructionSet};
 use crate::color::Color;
 use rayon::prelude::*;
+use simba::simd::{AutoF32x4, AutoU8x4, SimdComplexField, SimdPartialOrd, SimdValue};
 use crate::{color_to_packed, create_color, extract_rgba_channels_by_type, handle_lower_operation, scalar_to_packed};
 use crate::color::blending::{compute_blend, BlendingMode};
+use crate::color::simd_casts::{f32x4_to_u32, u8x4_to_f32x4};
 
 mod utils;
 mod batch_instructions;
@@ -35,8 +35,7 @@ impl ColorBatch {
     fn exec(&self) {
         let mut batch_write = self.batch.write().unwrap();
         let mut self_lanes = batch_write.par_iter().map(|x| {
-            let values = x.to_be_bytes();
-            f64x4::from_array([values[0] as f64, values[1] as f64, values[2] as f64, values[3] as f64])
+            u8x4_to_f32x4(AutoU8x4::from(x.to_be_bytes()))
         }).collect::<Vec<_>>();
         while let Some(instruction_type) = self.queue.pop() {
             match instruction_type {
@@ -58,11 +57,9 @@ impl ColorBatch {
                         .par_iter_mut()
                         .for_each(|lane| {
                             for src in &other {
-                                // Fallback to scalar, as its impossible to do with SIMD
-                                lane[0] = lane[0].powf(1.0 / src[0]);
-                                lane[1] = lane[1].powf(1.0 / src[1]);
-                                lane[2] = lane[2].powf(1.0 / src[2]);
-                                lane[3] = lane[3].powf(1.0 / src[3]);
+                                *lane = lane
+                                    .simd_powf(AutoF32x4::splat(1.0)
+                                    .div(AutoF32x4::from(*src)));
                             }
                         });
                 }
@@ -78,9 +75,9 @@ impl ColorBatch {
             }
         }
         *batch_write = self_lanes.into_par_iter().map(|x| {
-            let result = x.simd_clamp(f64x4::splat(0f64), f64x4::splat(255f64))
-                .round();
-            u32::from_be_bytes([result[0] as u8, result[1] as u8, result[2] as u8, result[3] as u8])
+            let result = x.simd_clamp(AutoF32x4::splat(0f32), AutoF32x4::splat(255f32))
+                .simd_round();
+            f32x4_to_u32(result)
         }).collect::<Vec<_>>();
     }
 }
@@ -97,32 +94,32 @@ impl ColorBatch {
 
     #[pyo3(signature = (colors, include_transparency=true))]
     pub fn add(slf: PyRef<'_, Self>, colors: Vec<Color>, include_transparency: bool) -> PyRef<'_, Self> {
-        let packed: Vec<f64x4> = color_to_packed!(colors, |x: u32| {
-            ((x as u8) & (include_transparency as u8).wrapping_neg()) as f64
+        let packed: Vec<AutoF32x4> = color_to_packed!(colors, |x: u32| {
+            ((x as u8) & (include_transparency as u8).wrapping_neg()) as f32
         });
         slf.queue.push(BatchInstructionSet::LowerAddend(packed));
         slf
     }
 
     #[pyo3(signature = (scalars, include_transparency=true))]
-    pub fn add_scalar(slf: PyRef<'_, Self>, scalars: Vec<f64>, include_transparency: bool) -> PyRef<'_, Self> {
-        let packed: Vec<f64x4> = scalar_to_packed!(scalars, |x| x * f64::from(include_transparency));
+    pub fn add_scalar(slf: PyRef<'_, Self>, scalars: Vec<f32>, include_transparency: bool) -> PyRef<'_, Self> {
+        let packed: Vec<AutoF32x4> = scalar_to_packed!(scalars, |x| x * f32::from(include_transparency));
         slf.queue.push(BatchInstructionSet::LowerAddend(packed));
         slf
     }
 
     #[pyo3(signature = (colors, include_transparency=true))]
     pub fn sub(slf: PyRef<'_, Self>, colors: Vec<Color>, include_transparency: bool) -> PyRef<'_, Self> {
-        let packed: Vec<f64x4> = color_to_packed!(colors, |x: u32| {
-            ((x as u8) & (include_transparency as u8).wrapping_neg()) as f64
+        let packed: Vec<AutoF32x4> = color_to_packed!(colors, |x: u32| {
+            ((x as u8) & (include_transparency as u8).wrapping_neg()) as f32
         });
         slf.queue.push(BatchInstructionSet::LowerSub(packed));
         slf
     }
 
     #[pyo3(signature = (scalars, include_transparency=true))]
-    pub fn sub_scalar(slf: PyRef<'_, Self>, scalars: Vec<f64>, include_transparency: bool) -> PyRef<'_, Self> {
-        let packed: Vec<f64x4> = scalar_to_packed!(scalars, |x| x * f64::from(include_transparency));
+    pub fn sub_scalar(slf: PyRef<'_, Self>, scalars: Vec<f32>, include_transparency: bool) -> PyRef<'_, Self> {
+        let packed: Vec<AutoF32x4> = scalar_to_packed!(scalars, |x| x * f32::from(include_transparency));
         slf.queue.push(BatchInstructionSet::LowerSub(packed));
         slf
     }
@@ -130,33 +127,33 @@ impl ColorBatch {
     #[pyo3(signature = (colors, include_transparency=true))]
     pub fn mul(slf: PyRef<'_, Self>, colors: Vec<Color>, include_transparency: bool) -> PyRef<'_, Self> {
         let m = (include_transparency as u8).wrapping_neg();
-        let packed: Vec<f64x4> = color_to_packed!(colors, |x: u32| {
-            (((x as u8) & m) | (1u8 & !m)) as f64
+        let packed: Vec<AutoF32x4> = color_to_packed!(colors, |x: u32| {
+            (((x as u8) & m) | (1u8 & !m)) as f32
         });
         slf.queue.push(BatchInstructionSet::LowerMul(packed));
         slf
     }
 
     #[pyo3(signature = (scalars, include_transparency=true))]
-    pub fn mul_scalar(slf: PyRef<'_, Self>, scalars: Vec<f64>, include_transparency: bool) -> PyRef<'_, Self> {
-        let transparency = f64::from(include_transparency);
-        let packed: Vec<f64x4> = scalar_to_packed!(scalars, |x| x * transparency + 1.0 * (1.0 - transparency));
+    pub fn mul_scalar(slf: PyRef<'_, Self>, scalars: Vec<f32>, include_transparency: bool) -> PyRef<'_, Self> {
+        let transparency = f32::from(include_transparency);
+        let packed: Vec<AutoF32x4> = scalar_to_packed!(scalars, |x| x * transparency + 1.0 * (1.0 - transparency));
         slf.queue.push(BatchInstructionSet::LowerMul(packed));
         slf
     }
 
     #[pyo3(signature = (scalars, include_transparency=true))]
-    pub fn div_scalar(slf: PyRef<'_, Self>, scalars: Vec<f64>, include_transparency: bool) -> PyRef<'_, Self> {
-        let transparency = f64::from(include_transparency);
-        let packed: Vec<f64x4> = scalar_to_packed!(scalars, |x| x * transparency + 1.0 * (1.0 - transparency));
+    pub fn div_scalar(slf: PyRef<'_, Self>, scalars: Vec<f32>, include_transparency: bool) -> PyRef<'_, Self> {
+        let transparency = f32::from(include_transparency);
+        let packed: Vec<AutoF32x4> = scalar_to_packed!(scalars, |x| x * transparency + 1.0 * (1.0 - transparency));
         slf.queue.push(BatchInstructionSet::DivScalarToBatch(packed));
         slf
     }
 
     #[pyo3(signature = (scalars, include_transparency=true))]
-    pub fn nth_root_scalar(slf: PyRef<'_, Self>, scalars: Vec<f64>, include_transparency: bool) -> PyRef<'_, Self> {
-        let transparency = f64::from(include_transparency);
-        let packed: Vec<[f64; 4]> = scalars
+    pub fn nth_root_scalar(slf: PyRef<'_, Self>, scalars: Vec<f32>, include_transparency: bool) -> PyRef<'_, Self> {
+        let transparency = f32::from(include_transparency);
+        let packed: Vec<[f32; 4]> = scalars
             .par_iter()
             .map(|x| [*x, *x, *x, x * transparency + 1.0 * (1.0 - transparency)])
             .collect();
@@ -174,19 +171,9 @@ impl ColorBatch {
         slf.queue.push(BatchInstructionSet::BlendMode(
             colors.as_slice()
                 .par_iter()
-                .map(|x| {
-                    f64x4::from_array(
-                        {
-                            let value = x.0.load(Ordering::Relaxed);
-                            [
-                                ((value >> 24) & 0xFF) as f64,
-                                ((value >> 16) & 0xFF) as f64,
-                                ((value >> 8) & 0xFF) as f64,
-                                value as u8 as f64
-                            ]
-                        }
-                    )
-                })
+                .map(|x| u8x4_to_f32x4(
+                    AutoU8x4::from(x.0.load(Ordering::Relaxed).to_be_bytes())
+                ))
                 .collect(),
             modes
         ));
